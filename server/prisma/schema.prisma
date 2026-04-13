@@ -35,6 +35,8 @@ model Product {
   description      String?
   priceCents       Int
   imagesJson       String?
+  sizesJson        String?   // JSON array of strings, e.g. ["S","M","L","XL","2XL"]
+  colorsJson       String?   // JSON array of strings, e.g. ["Black","White","Navy"]
   collectionId     String
   collection       Collection  @relation(fields: [collectionId], references: [id])
   orderItems       OrderItem[]

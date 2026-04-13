@@ -1,568 +1,204 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../../lib/api";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { api } from "@/app/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
+import { motion } from "framer-motion";
 
 type Transaction = {
-    id: string;
-    type: 'INCOME' | 'EXPENSE' | 'REFUND' | 'FEE';
-    amountCents: number;
-    description: string;
-    orderId?: string;
-    order?: {
-        id: string;
-        customerName: string;
-        totalCents: number;
-    };
-    stripePaymentIntentId?: string;
-    status: 'PENDING' | 'COMPLETED' | 'FAILED' | 'CANCELLED';
-    createdAt: string;
-    processedAt?: string;
+    id:string; type:string; amountCents:number; note?:string;
+    orderId?:string; order?: { customerName:string; id:string };
+    createdAt:string;
 };
+type Summary = { grossCents:number; netCents:number; orders:number };
 
-type FinancialSummary = {
-    totalRevenue: number;
-    totalExpenses: number;
-    netProfit: number;
-    pendingPayments: number;
-    thisMonth: {
-        revenue: number;
-        expenses: number;
-        profit: number;
-    };
-    lastMonth: {
-        revenue: number;
-        expenses: number;
-        profit: number;
-    };
-};
+const TYPE_VARIANT: Record<string, string> = { INCOME:"success", EXPENSE:"danger", REFUND:"info", FEE:"warning" };
+
+const fmt = (cents: number) =>
+    new Intl.NumberFormat("en-US", { style:"currency", currency:"USD" }).format(cents / 100);
 
 export default function FinancePage() {
+    const { toast } = useToast();
     const [transactions, setTransactions] = useState<Transaction[]>([]);
-    const [filteredTransactions, setFilteredTransactions] = useState<Transaction[]>([]);
-    const [summary, setSummary] = useState<FinancialSummary | null>(null);
-    const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState('');
-    const [typeFilter, setTypeFilter] = useState<string>('');
-    const [statusFilter, setStatusFilter] = useState<string>('');
-    const [dateFilter, setDateFilter] = useState<string>('all');
-    const [showAddTransaction, setShowAddTransaction] = useState(false);
-    const [showTransactionDetails, setShowTransactionDetails] = useState<string | null>(null);
-    const [transactionForm, setTransactionForm] = useState({
-        type: 'INCOME',
-        amount: '',
-        description: '',
-        orderId: ''
-    });
+    const [summary, setSummary]           = useState<Summary | null>(null);
+    const [loading, setLoading]           = useState(true);
+    const [search, setSearch]             = useState("");
+    const [typeFilter, setTypeFilter]     = useState("");
+    const [showAdd, setShowAdd]           = useState(false);
+    const [saving, setSaving]             = useState(false);
+    const [form, setForm]                 = useState({ type:"INCOME", amount:"", note:"" });
 
-    useEffect(() => {
-        fetchData();
-    }, []);
-
-    useEffect(() => {
-        filterTransactions();
-    }, [transactions, searchTerm, typeFilter, statusFilter, dateFilter]);
+    useEffect(() => { fetchData(); }, []);
 
     async function fetchData() {
+        setLoading(true);
         try {
-            setLoading(true);
-            // Fetch transactions and summary data
-            const [transactionsData, summaryData] = await Promise.all([
-                api("/finance/transactions"),
-                api("/finance/summary")
-            ]);
-            setTransactions(transactionsData || []);
-            setSummary(summaryData || {
-                totalRevenue: 0,
-                totalExpenses: 0,
-                netProfit: 0,
-                pendingPayments: 0,
-                thisMonth: { revenue: 0, expenses: 0, profit: 0 },
-                lastMonth: { revenue: 0, expenses: 0, profit: 0 }
-            });
-        } catch (error) {
-            console.error('Error fetching finance data:', error);
-            // Set default data if API fails
-            setTransactions([]);
-            setSummary({
-                totalRevenue: 0,
-                totalExpenses: 0,
-                netProfit: 0,
-                pendingPayments: 0,
-                thisMonth: { revenue: 0, expenses: 0, profit: 0 },
-                lastMonth: { revenue: 0, expenses: 0, profit: 0 }
-            });
-        } finally {
-            setLoading(false);
-        }
+            const [txData, sumData] = await Promise.all([api("/finance/transactions").catch(() => []), api("/finance/summary")]);
+            setTransactions(Array.isArray(txData) ? txData : []);
+            setSummary(sumData);
+        } catch { /* ignore */ }
+        finally { setLoading(false); }
     }
 
-    function filterTransactions() {
-        let filtered = transactions.filter(transaction => {
-            const matchesSearch = 
-                transaction.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                transaction.order?.customerName?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                transaction.id.toLowerCase().includes(searchTerm.toLowerCase());
-            
-            const matchesType = !typeFilter || transaction.type === typeFilter;
-            const matchesStatus = !statusFilter || transaction.status === statusFilter;
-            
-            let matchesDate = true;
-            if (dateFilter === 'today') {
-                const today = new Date().toDateString();
-                matchesDate = new Date(transaction.createdAt).toDateString() === today;
-            } else if (dateFilter === 'this-week') {
-                const weekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
-                matchesDate = new Date(transaction.createdAt) >= weekAgo;
-            } else if (dateFilter === 'this-month') {
-                const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-                matchesDate = new Date(transaction.createdAt) >= monthAgo;
-            }
-            
-            return matchesSearch && matchesType && matchesStatus && matchesDate;
-        });
-        
-        setFilteredTransactions(filtered);
-    }
+    const filtered = transactions.filter(t => {
+        const q = search.toLowerCase();
+        return (!q || (t.note ?? "").toLowerCase().includes(q) || t.id.toLowerCase().includes(q)) && (!typeFilter || t.type === typeFilter);
+    });
 
-    async function createTransaction(e: any) {
-        e.preventDefault();
+    async function addTransaction(e: React.FormEvent) {
+        e.preventDefault(); setSaving(true);
         try {
-            const transactionData = {
-                type: transactionForm.type,
-                amountCents: Math.round(parseFloat(transactionForm.amount) * 100),
-                description: transactionForm.description,
-                orderId: transactionForm.orderId || undefined
-            };
-            
-            // This would typically create a transaction via API
-            console.log('Creating transaction:', transactionData);
-            
-            // Add to local state for immediate UI update
-            const newTransaction: Transaction = {
-                id: `txn_${Date.now()}`,
-                type: transactionData.type as 'INCOME' | 'EXPENSE' | 'REFUND' | 'FEE',
-                amountCents: transactionData.amountCents,
-                description: transactionData.description,
-                orderId: transactionData.orderId,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
-                processedAt: new Date().toISOString()
-            };
-            
-            setTransactions(prev => [newTransaction, ...prev]);
-            setShowAddTransaction(false);
-            setTransactionForm({ type: 'INCOME', amount: '', description: '', orderId: '' });
-            
-            // Refresh summary data
-            await fetchData();
-        } catch (error) {
-            console.error('Error creating transaction:', error);
-        }
+            const tx = await api("/finance/transactions", { method:"POST", body:JSON.stringify({
+                type:form.type,
+                amountCents:Math.round(parseFloat(form.amount)*100) * (form.type==="EXPENSE"||form.type==="FEE" ? -1 : 1),
+                note:form.note||undefined
+            })});
+            setTransactions(p => [tx, ...p]);
+            setShowAdd(false); setForm({ type:"INCOME", amount:"", note:"" });
+            toast("Transaction recorded"); fetchData();
+        } catch (err: any) { toast(err.message||"Failed", "error"); }
+        finally { setSaving(false); }
     }
 
-    async function processPayment(orderId: string) {
-        try {
-            // This would integrate with Stripe to process payment
-            console.log('Processing payment for order:', orderId);
-            
-            // Simulate payment processing
-            const paymentTransaction: Transaction = {
-                id: `pay_${Date.now()}`,
-                type: 'INCOME',
-                amountCents: 2500, // Example amount
-                description: 'Payment processed via Stripe',
-                orderId,
-                status: 'COMPLETED',
-                createdAt: new Date().toISOString(),
-                processedAt: new Date().toISOString(),
-                stripePaymentIntentId: `pi_${Math.random().toString(36).substr(2, 9)}`
-            };
-            
-            setTransactions(prev => [paymentTransaction, ...prev]);
-            await fetchData();
-        } catch (error) {
-            console.error('Error processing payment:', error);
-        }
-    }
+    const income   = transactions.filter(t => t.amountCents > 0).reduce((a,t) => a + t.amountCents, 0);
+    const expenses = transactions.filter(t => t.amountCents < 0).reduce((a,t) => a + Math.abs(t.amountCents), 0);
 
-    function formatCurrency(cents: number) {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: 'USD'
-        }).format(cents / 100);
-    }
-
-    const typeOptions = [
-        { value: '', label: 'All Types' },
-        { value: 'INCOME', label: 'Income' },
-        { value: 'EXPENSE', label: 'Expense' },
-        { value: 'REFUND', label: 'Refund' },
-        { value: 'FEE', label: 'Fee' }
+    const kpis = [
+        { label:"Gross Revenue",   value:fmt(summary?.grossCents ?? 0), color:"text-brand-600",   icon:"💰" },
+        { label:"Net Profit",      value:fmt(summary?.netCents ?? 0),   color:"text-slate-900",    icon:"📈" },
+        { label:"Recorded Income", value:fmt(income),                   color:"text-emerald-600",  icon:"⬆️" },
+        { label:"Expenses",        value:fmt(expenses),                 color:"text-red-500",      icon:"⬇️" },
     ];
-
-    const statusOptions = [
-        { value: '', label: 'All Statuses' },
-        { value: 'PENDING', label: 'Pending' },
-        { value: 'COMPLETED', label: 'Completed' },
-        { value: 'FAILED', label: 'Failed' },
-        { value: 'CANCELLED', label: 'Cancelled' }
-    ];
-
-    const dateOptions = [
-        { value: 'all', label: 'All Time' },
-        { value: 'today', label: 'Today' },
-        { value: 'this-week', label: 'This Week' },
-        { value: 'this-month', label: 'This Month' }
-    ];
-
-    if (loading) {
-        return (
-            <div className="space-y-6">
-                <div className="text-2xl font-bold">Finance</div>
-                <div className="animate-pulse">
-                    <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-                    <div className="h-64 bg-gray-200 rounded"></div>
-                </div>
-            </div>
-        );
-    }
 
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Finance</h1>
-                    <p className="text-gray-600">Track income, expenses, and manage payments</p>
+                    <h1 className="page-title">Finance</h1>
+                    <p className="page-subtitle">Track revenue, expenses, and transactions</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setShowAddTransaction(true)}>
-                        Add Transaction
-                    </Button>
-                    <Button onClick={() => window.open('https://dashboard.stripe.com', '_blank')}>
-                        Stripe Dashboard
-                    </Button>
+                <motion.button whileHover={{ y:-1 }} whileTap={{ scale:0.97 }}
+                    onClick={() => setShowAdd(true)}
+                    className="btn-shine flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-200"
+                    style={{ background:"linear-gradient(135deg,#8b5cf6 0%,#7c3aed 100%)", boxShadow:"0 4px 16px rgba(124,58,237,0.35)" }}
+                >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
+                    Add Transaction
+                </motion.button>
+            </div>
+
+            {/* KPIs */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {kpis.map((k, i) => (
+                    <motion.div key={k.label} initial={{ opacity:0, y:8 }} animate={{ opacity:1, y:0 }} transition={{ delay:i*0.07 }}
+                        className="bg-white rounded-2xl p-5 ring-1 ring-black/5 shadow-card cursor-default">
+                        <div className="flex items-center justify-between mb-3">
+                            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">{k.label}</p>
+                            <span className="text-lg">{k.icon}</span>
+                        </div>
+                        <p className={`text-2xl font-bold tabular-nums ${loading ? "text-slate-200" : k.color}`}>
+                            {loading ? "———" : k.value}
+                        </p>
+                    </motion.div>
+                ))}
+            </div>
+
+            {/* Filters */}
+            <div className="flex items-center gap-3">
+                <div className="relative max-w-xs flex-1">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 bg-white shadow-sm transition-all"
+                        placeholder="Search transactions…" value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
+                <Select value={typeFilter} onChange={e => setTypeFilter(e.target.value)} className="w-36">
+                    <option value="">All types</option>
+                    <option value="INCOME">Income</option>
+                    <option value="EXPENSE">Expense</option>
+                    <option value="REFUND">Refund</option>
+                    <option value="FEE">Fee</option>
+                </Select>
             </div>
 
-            {/* Financial Summary Cards */}
-            <div className="grid md:grid-cols-4 gap-4">
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                    <CardContent className="p-6">
-                        <div className="text-sm text-gray-600 font-medium">Total Revenue</div>
-                        <div className="text-2xl font-bold text-gray-900">
-                            {formatCurrency(summary?.totalRevenue || 0)}
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                    <CardContent className="p-6">
-                        <div className="text-sm text-gray-600 font-medium">Total Expenses</div>
-                        <div className="text-2xl font-bold text-gray-900">
-                            {formatCurrency(summary?.totalExpenses || 0)}
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                    <CardContent className="p-6">
-                        <div className="text-sm text-gray-600 font-medium">Net Profit</div>
-                        <div className="text-2xl font-bold text-gray-900">
-                            {formatCurrency(summary?.netProfit || 0)}
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                    <CardContent className="p-6">
-                        <div className="text-sm text-gray-600 font-medium">Pending Payments</div>
-                        <div className="text-2xl font-bold text-gray-900">
-                            {formatCurrency(summary?.pendingPayments || 0)}
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Monthly Comparison */}
-            <div className="grid md:grid-cols-2 gap-4">
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                    <CardHeader>
-                        <CardTitle>This Month</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-2">
-                            <div className="flex justify-between">
-                                <span className="text-gray-600">Revenue:</span>
-                                <span className="font-medium text-gray-900">
-                                    {formatCurrency(summary?.thisMonth.revenue || 0)}
-                                </span>
+            {/* Table */}
+            <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card overflow-hidden">
+                {loading ? (
+                    <div className="p-8 space-y-3">
+                        {[1,2,3,4].map(i => (
+                            <div key={i} className="animate-pulse flex items-center gap-4">
+                                <div className="h-5 w-16 bg-slate-100 rounded-full"/>
+                                <div className="h-4 w-20 bg-slate-200 rounded"/>
+                                <div className="flex-1 h-3 bg-slate-100 rounded"/>
+                                <div className="h-3 w-20 bg-slate-100 rounded"/>
                             </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-600">Expenses:</span>
-                                <span className="font-medium text-gray-900">
-                                    {formatCurrency(summary?.thisMonth.expenses || 0)}
-                                </span>
-                            </div>
-                            <div className="flex justify-between border-t border-gray-200 pt-2">
-                                <span className="font-semibold text-gray-700">Profit:</span>
-                                <span className="font-bold text-gray-900">
-                                    {formatCurrency(summary?.thisMonth.profit || 0)}
-                                </span>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-                <Card className="bg-white border border-gray-200 shadow-sm">
-                    <CardHeader>
-                        <CardTitle>Last Month</CardTitle>
-                    </CardHeader>
-                    <CardContent>
-                        <div className="space-y-2">
-                            <div className="flex justify-between">
-                                <span className="text-gray-600">Revenue:</span>
-                                <span className="font-medium text-gray-900">
-                                    {formatCurrency(summary?.lastMonth.revenue || 0)}
-                                </span>
-                            </div>
-                            <div className="flex justify-between">
-                                <span className="text-gray-600">Expenses:</span>
-                                <span className="font-medium text-gray-900">
-                                    {formatCurrency(summary?.thisMonth.expenses || 0)}
-                                </span>
-                            </div>
-                            <div className="flex justify-between border-t border-gray-200 pt-2">
-                                <span className="font-semibold text-gray-700">Profit:</span>
-                                <span className="font-bold text-gray-900">
-                                    {formatCurrency(summary?.thisMonth.profit || 0)}
-                                </span>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            </div>
-
-            {/* Search and Filters */}
-            <Card>
-                <CardContent className="p-4">
-                    <div className="flex gap-4 items-center flex-wrap">
-                        <div className="flex-1 min-w-64">
-                            <Input
-                                placeholder="Search transactions by description, customer, or ID..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                            />
-                        </div>
-                        <Select 
-                            value={typeFilter} 
-                            onChange={(e) => setTypeFilter(e.target.value)}
-                        >
-                            {typeOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </Select>
-                        <Select 
-                            value={statusFilter} 
-                            onChange={(e) => setStatusFilter(e.target.value)}
-                        >
-                            {statusOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </Select>
-                        <Select 
-                            value={dateFilter} 
-                            onChange={(e) => setDateFilter(e.target.value)}
-                        >
-                            {dateOptions.map(option => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </Select>
+                        ))}
                     </div>
-                </CardContent>
-            </Card>
-
-            {/* Transactions Table */}
-            <Card>
-                <CardHeader>
-                    <CardTitle>
-                        {filteredTransactions.length} transactions
-                    </CardTitle>
-                </CardHeader>
-                <CardContent>
+                ) : filtered.length === 0 ? (
+                    <div className="flex flex-col items-center py-16 text-slate-300">
+                        <svg className="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <p className="text-sm text-slate-400 font-medium">No transactions found</p>
+                        <p className="text-xs text-slate-300 mt-0.5">{search||typeFilter ? "Try clearing filters" : "Add transactions to track income and expenses"}</p>
+                    </div>
+                ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full">
-                            <thead>
-                                <tr className="border-b border-gray-200 bg-gray-50">
-                                    <th className="text-left p-3 font-medium">Type</th>
-                                    <th className="text-left p-3 font-medium">Amount</th>
-                                    <th className="text-left p-3 font-medium">Description</th>
-                                    <th className="text-left p-3 font-medium">Order</th>
-                                    <th className="text-left p-3 font-medium">Status</th>
-                                    <th className="text-left p-3 font-medium">Date</th>
-                                    <th className="text-right p-3 font-medium">Actions</th>
-                                </tr>
-                            </thead>
+                        <table className="data-table">
+                            <thead><tr><th>Type</th><th>Amount</th><th>Note</th><th>Order</th><th>Date</th></tr></thead>
                             <tbody>
-                                {filteredTransactions.map((transaction) => (
-                                    <tr key={transaction.id} className="border-b border-gray-200 hover:bg-gray-50">
-                                        <td className="p-3">
-                                            <Badge className={
-                                                transaction.type === 'INCOME' ? 'bg-green-100 text-green-800' :
-                                                transaction.type === 'EXPENSE' ? 'bg-red-100 text-red-800' :
-                                                transaction.type === 'REFUND' ? 'bg-blue-100 text-blue-800' :
-                                                'bg-gray-100 text-gray-800'
-                                            }>
-                                                {transaction.type}
-                                            </Badge>
-                                        </td>
-                                        <td className="p-3 font-medium">
-                                            <span className={
-                                                transaction.type === 'INCOME' ? 'text-green-600' :
-                                                transaction.type === 'EXPENSE' ? 'text-red-600' :
-                                                'text-gray-600'
-                                            }>
-                                                {formatCurrency(transaction.amountCents)}
+                                {filtered.map((tx, idx) => (
+                                    <motion.tr key={tx.id} initial={{ opacity:0, y:4 }} animate={{ opacity:1, y:0 }} transition={{ delay:idx*0.02, duration:0.2 }}>
+                                        <td><Badge variant={TYPE_VARIANT[tx.type] as any} size="sm">{tx.type.charAt(0)+tx.type.slice(1).toLowerCase()}</Badge></td>
+                                        <td>
+                                            <span className={`text-sm font-bold tabular-nums ${tx.amountCents >= 0 ? "text-emerald-600" : "text-red-500"}`}>
+                                                {tx.amountCents >= 0 ? "+" : ""}{fmt(tx.amountCents)}
                                             </span>
                                         </td>
-                                        <td className="p-3">
-                                            <div className="max-w-xs truncate" title={transaction.description}>
-                                                {transaction.description}
-                                            </div>
-                                        </td>
-                                        <td className="p-3">
-                                            {transaction.order ? (
-                                                <div className="text-sm">
-                                                    <div className="font-medium">{transaction.order.customerName}</div>
-                                                    <div className="text-gray-500">#{transaction.order.id.slice(0, 8)}</div>
+                                        <td><span className="text-sm text-slate-700">{tx.note ?? <span className="text-slate-300">—</span>}</span></td>
+                                        <td>
+                                            {tx.order ? (
+                                                <div>
+                                                    <p className="text-sm text-slate-700">{tx.order.customerName}</p>
+                                                    <p className="text-xs font-mono text-slate-400">#{tx.order.id.slice(-8).toUpperCase()}</p>
                                                 </div>
-                                                                                         ) : (
-                                                 <span className="text-gray-500">—</span>
-                                             )}
+                                            ) : <span className="text-slate-300">—</span>}
                                         </td>
-                                        <td className="p-3">
-                                            <Badge className={
-                                                transaction.status === 'COMPLETED' ? 'bg-green-100 text-green-800' :
-                                                transaction.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' :
-                                                transaction.status === 'FAILED' ? 'bg-red-100 text-red-800' :
-                                                'bg-gray-100 text-gray-800'
-                                            }>
-                                                {transaction.status}
-                                            </Badge>
-                                        </td>
-                                        <td className="p-3 text-sm text-gray-600">
-                                            {new Date(transaction.createdAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="p-3 text-right">
-                                            <div className="flex gap-2 justify-end">
-                                                {transaction.orderId && transaction.status === 'PENDING' && (
-                                                    <Button
-                                                        size="sm"
-                                                        onClick={() => processPayment(transaction.orderId!)}
-                                                    >
-                                                        Process Payment
-                                                    </Button>
-                                                )}
-                                                <Button variant="outline" size="sm" onClick={() => setShowTransactionDetails(transaction.id)}>
-                                                    View Details
-                                                </Button>
-                                            </div>
-                                        </td>
-                                    </tr>
+                                        <td><span className="text-xs text-slate-400">{new Date(tx.createdAt).toLocaleDateString("en-US", { month:"short", day:"numeric" })}</span></td>
+                                    </motion.tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                    
-                    {filteredTransactions.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                            {searchTerm || typeFilter || statusFilter || dateFilter !== 'all'
-                                ? 'No transactions match your filters' 
-                                : 'No transactions found'
-                            }
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                )}
+            </div>
 
-            {/* Add Transaction Modal */}
-            {showAddTransaction && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 w-96 max-w-full">
-                        <h3 className="text-lg font-semibold mb-4">Add Transaction</h3>
-                        
-                        <form onSubmit={createTransaction} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Type</label>
-                                <Select 
-                                    value={transactionForm.type} 
-                                    onChange={(e) => setTransactionForm({ ...transactionForm, type: e.target.value as any })}
-                                >
-                                    <option value="INCOME">Income</option>
-                                    <option value="EXPENSE">Expense</option>
-                                    <option value="REFUND">Refund</option>
-                                    <option value="FEE">Fee</option>
-                                </Select>
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Amount ($)</label>
-                                <Input
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="0.00"
-                                    value={transactionForm.amount}
-                                    onChange={(e) => setTransactionForm({ ...transactionForm, amount: e.target.value })}
-                                    required
-                                />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Description</label>
-                                <Input
-                                    placeholder="Transaction description"
-                                    value={transactionForm.description}
-                                    onChange={(e) => setTransactionForm({ ...transactionForm, description: e.target.value })}
-                                    required
-                                />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Order ID (optional)</label>
-                                <Input
-                                    placeholder="Order ID if related to an order"
-                                    value={transactionForm.orderId}
-                                    onChange={(e) => setTransactionForm({ ...transactionForm, orderId: e.target.value })}
-                                />
-                            </div>
-                            
-                            <div className="flex gap-2 mt-6">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setShowAddTransaction(false)}
-                                    className="flex-1"
-                                >
-                                    Cancel
-                                </Button>
-                                <Button
-                                    type="submit"
-                                    className="flex-1"
-                                >
-                                    Add Transaction
-                                </Button>
-                            </div>
-                        </form>
+            {/* Add Modal */}
+            <Modal open={showAdd} onClose={() => setShowAdd(false)} title="Add Transaction" size="sm">
+                <form onSubmit={addTransaction} className="space-y-4">
+                    <div>
+                        <label className="field-label">Type</label>
+                        <Select value={form.type} onChange={e => setForm(p => ({ ...p, type:e.target.value }))}>
+                            <option value="INCOME">Income</option>
+                            <option value="EXPENSE">Expense</option>
+                            <option value="REFUND">Refund</option>
+                            <option value="FEE">Fee</option>
+                        </Select>
                     </div>
-                </div>
-            )}
+                    <Input label="Amount ($)" type="number" step="0.01" min="0" required placeholder="0.00"
+                        value={form.amount} onChange={e => setForm(p => ({ ...p, amount:e.target.value }))} />
+                    <Input label="Note" placeholder="e.g. Supply run at Hobby Lobby"
+                        value={form.note} onChange={e => setForm(p => ({ ...p, note:e.target.value }))} />
+                    <p className="text-xs text-slate-500 bg-slate-50 rounded-xl px-3 py-2">
+                        {form.type==="EXPENSE"||form.type==="FEE" ? "⬇️ Recorded as a deduction from net profit." : "⬆️ Recorded as an addition to net profit."}
+                    </p>
+                    <ModalFooter>
+                        <Button type="button" variant="outline" onClick={() => setShowAdd(false)}>Cancel</Button>
+                        <Button type="submit" loading={saving}>Save Transaction</Button>
+                    </ModalFooter>
+                </form>
+            </Modal>
         </div>
     );
 }

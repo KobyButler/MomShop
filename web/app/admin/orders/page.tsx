@@ -1,501 +1,478 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../../lib/api";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { api } from "@/app/lib/api";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
+import { Badge, statusVariant } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { Modal, ModalFooter } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
+import { motion, AnimatePresence } from "framer-motion";
 
-type Order = {
-    id: string;
-    customerName: string;
-    customerEmail: string;
-    status: string;
-    totalCents: number;
-    createdAt: string;
-    items: any[];
-    shopId?: string;
-    shop?: { name: string };
+type VendorOrder = {
+    id: string; vendor: string; status: string;
+    externalOrderNumber?: string; createdAt: string;
 };
+type Order = {
+    id: string; customerName: string; customerEmail: string;
+    status: string; totalCents: number; createdAt: string;
+    items: any[]; shop?: { name: string };
+    shipAddress1?: string; shipCity?: string; shipState?: string; shipZip?: string;
+    vendorOrders?: VendorOrder[];
+};
+type Product = { id: string; name: string; priceCents: number; sku: string };
 
-type ViewType = 'all' | 'unfulfilled' | 'unpaid' | 'open' | 'archived';
+const TABS = [
+    { key: "all",         label: "All"         },
+    { key: "UNFULFILLED", label: "Unfulfilled"  },
+    { key: "FULFILLED",   label: "Fulfilled"    },
+    { key: "CANCELLED",   label: "Cancelled"    },
+] as const;
+
+const fmt = (cents: number) =>
+    new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 
 export default function OrdersPage() {
-    const [orders, setOrders] = useState<Order[]>([]);
-    const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [viewType, setViewType] = useState<ViewType>('all');
-    const [searchTerm, setSearchTerm] = useState('');
-    const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set());
-    const [showExportModal, setShowExportModal] = useState(false);
-    const [showCreateOrderModal, setShowCreateOrderModal] = useState(false);
-    const [exportType, setExportType] = useState<'current' | 'all' | 'selected' | 'search' | 'date'>('current');
-    const [exportFormat, setExportFormat] = useState<'excel' | 'csv'>('excel');
-    const [sortField, setSortField] = useState<keyof Order>('createdAt');
-    const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+    const { toast } = useToast();
+    const [orders, setOrders]             = useState<Order[]>([]);
+    const [products, setProducts]         = useState<Product[]>([]);
+    const [loading, setLoading]           = useState(true);
+    const [tab, setTab]                   = useState<string>("all");
+    const [search, setSearch]             = useState("");
+    const [selectedIds, setSelectedIds]   = useState<Set<string>>(new Set());
+    const [detailOrder, setDetailOrder]   = useState<Order | null>(null);
+    const [showCreate, setShowCreate]     = useState(false);
+    const [showExport, setShowExport]     = useState(false);
+    const [creating, setCreating]         = useState(false);
+    const [page, setPage]                 = useState(1);
+    const [totalPages, setTotalPages]     = useState(1);
+    const [totalOrders, setTotalOrders]   = useState(0);
+    const PAGE_SIZE = 50;
 
-    useEffect(() => {
-        fetchOrders();
-    }, [viewType]);
+    const [createForm, setCreateForm] = useState({
+        customerName: "", customerEmail: "",
+        shipAddress1: "", shipAddress2: "",
+        shipCity: "", shipState: "", shipZip: ""
+    });
+    const [cartItems, setCartItems] = useState<{ productId: string; quantity: number }[]>([]);
 
-    useEffect(() => {
-        filterAndSortOrders();
-    }, [orders, searchTerm, sortField, sortDirection]);
+    useEffect(() => { setPage(1); }, [tab]);
+    useEffect(() => { fetchOrders(); }, [tab, page]);
+    useEffect(() => { api("/products").then(d => setProducts(Array.isArray(d) ? d : d?.data ?? [])).catch(() => {}); }, []);
 
     async function fetchOrders() {
+        setLoading(true);
         try {
-            setLoading(true);
-            let endpoint = '/orders';
-            
-            if (viewType === 'unfulfilled') {
-                endpoint += '?status=UNFULFILLED';
-            } else if (viewType === 'unpaid') {
-                endpoint += '?status=UNPAID';
-            } else if (viewType === 'open') {
-                endpoint += '?status=OPEN';
-            } else if (viewType === 'archived') {
-                endpoint += '?status=ARCHIVED';
-            }
-            
-            const data = await api(endpoint);
-            setOrders(data);
-        } catch (error) {
-            console.error('Error fetching orders:', error);
-        } finally {
-            setLoading(false);
-        }
+            const params = new URLSearchParams({ limit: String(PAGE_SIZE), page: String(page) });
+            if (tab !== "all") params.set("status", tab);
+            const result = await api(`/orders?${params}`);
+            setOrders(result.data ?? []);
+            setTotalPages(result.pages ?? 1);
+            setTotalOrders(result.total ?? 0);
+        } catch { setOrders([]); }
+        finally { setLoading(false); }
     }
 
-    function filterAndSortOrders() {
-        let filtered = orders.filter(order => {
-            const matchesSearch = 
-                order.customerName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                order.customerEmail.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                order.id.toLowerCase().includes(searchTerm.toLowerCase());
-            return matchesSearch;
-        });
+    const filtered = orders.filter(o => {
+        const q = search.toLowerCase();
+        return !q || o.customerName.toLowerCase().includes(q) ||
+            o.customerEmail.toLowerCase().includes(q) || o.id.toLowerCase().includes(q);
+    });
 
-        // Sort orders
-        filtered.sort((a, b) => {
-            const aVal = a[sortField];
-            const bVal = b[sortField];
-            
-            if (typeof aVal === 'string' && typeof bVal === 'string') {
-                return sortDirection === 'asc' 
-                    ? aVal.localeCompare(bVal)
-                    : bVal.localeCompare(aVal);
-            }
-            
-            if (typeof aVal === 'number' && typeof bVal === 'number') {
-                return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
-            }
-            
-            return 0;
-        });
-
-        setFilteredOrders(filtered);
+    function toggleSelect(id: string) {
+        setSelectedIds(prev => { const n = new Set(prev); n.has(id) ? n.delete(id) : n.add(id); return n; });
+    }
+    function toggleAll() {
+        setSelectedIds(prev => prev.size === filtered.length ? new Set() : new Set(filtered.map(o => o.id)));
     }
 
-    function handleSort(field: keyof Order) {
-        if (sortField === field) {
-            setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-        } else {
-            setSortField(field);
-            setSortDirection('asc');
-        }
+    async function cancelOrder(id: string) {
+        try { await api(`/orders/${id}/cancel`, { method: "POST" }); toast("Order cancelled"); fetchOrders(); }
+        catch (err: any) { toast(err.message || "Failed to cancel order", "error"); }
+    }
+    async function markFulfilled(id: string) {
+        try { await api(`/orders/${id}/fulfill`, { method: "POST" }); toast("Order marked as fulfilled"); fetchOrders(); }
+        catch { toast("Failed to update order", "error"); }
+    }
+    async function bulkFulfill() {
+        let count = 0;
+        for (const id of selectedIds) { try { await api(`/orders/${id}/fulfill`, { method: "POST" }); count++; } catch {} }
+        toast(`${count} order(s) marked as fulfilled`);
+        setSelectedIds(new Set()); fetchOrders();
     }
 
-    function toggleOrderSelection(orderId: string) {
-        const newSelected = new Set(selectedOrders);
-        if (newSelected.has(orderId)) {
-            newSelected.delete(orderId);
-        } else {
-            newSelected.add(orderId);
-        }
-        setSelectedOrders(newSelected);
+    function exportCSV() {
+        const csv = [
+            ["Order ID","Customer","Email","Status","Total","Date","Items"].join(","),
+            ...filtered.map(o => [o.id,`"${o.customerName}"`,o.customerEmail,o.status,`$${(o.totalCents/100).toFixed(2)}`,new Date(o.createdAt).toLocaleDateString(),o.items?.length??0].join(","))
+        ].join("\n");
+        const a = document.createElement("a");
+        a.href = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
+        a.download = `orders-${new Date().toISOString().split("T")[0]}.csv`;
+        a.click(); setShowExport(false); toast("Orders exported");
     }
 
-    function selectAllOrders() {
-        if (selectedOrders.size === filteredOrders.length) {
-            setSelectedOrders(new Set());
-        } else {
-            setSelectedOrders(new Set(filteredOrders.map(o => o.id)));
-        }
-    }
-
-    async function markFulfilled(orderId: string) {
+    async function createOrder(e: React.FormEvent) {
+        e.preventDefault();
+        if (cartItems.length === 0) { toast("Add at least one item", "error"); return; }
+        setCreating(true);
         try {
-            await api(`/orders/${orderId}/fulfill`, { method: "POST" });
-            await fetchOrders();
-        } catch (error) {
-            console.error('Error marking order fulfilled:', error);
-        }
-    }
-
-    function exportOrders() {
-        let ordersToExport = filteredOrders;
-        
-        if (exportType === 'selected') {
-            ordersToExport = orders.filter(o => selectedOrders.has(o.id));
-        } else if (exportType === 'search') {
-            ordersToExport = filteredOrders;
-        }
-        
-        const csvData = ordersToExport.map(order => ({
-            'Order ID': order.id,
-            'Customer Name': order.customerName,
-            'Customer Email': order.customerEmail,
-            'Status': order.status,
-            'Total': `$${(order.totalCents / 100).toFixed(2)}`,
-            'Date': new Date(order.createdAt).toLocaleDateString(),
-            'Items': order.items.length
-        }));
-        
-        const headers = Object.keys(csvData[0]);
-        const csvContent = [
-            headers.join(','),
-            ...csvData.map(row => headers.map(header => `"${(row as any)[header]}"`).join(','))
-        ].join('\n');
-        
-        const blob = new Blob([csvContent], { type: 'text/csv' });
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `orders-${exportType}-${new Date().toISOString().split('T')[0]}.${exportFormat === 'excel' ? 'csv' : 'csv'}`;
-        a.click();
-        window.URL.revokeObjectURL(url);
-        
-        setShowExportModal(false);
-    }
-
-    const viewOptions = [
-        { value: 'all', label: 'All orders', count: orders.length },
-        { value: 'unfulfilled', label: 'Unfulfilled', count: orders.filter(o => o.status === 'UNFULFILLED').length },
-        { value: 'unpaid', label: 'Unpaid', count: orders.filter(o => o.status === 'UNPAID').length },
-        { value: 'open', label: 'Open', count: orders.filter(o => o.status === 'OPEN').length },
-        { value: 'archived', label: 'Archived', count: orders.filter(o => o.status === 'ARCHIVED').length }
-    ];
-
-    if (loading) {
-        return (
-            <div className="space-y-6">
-                <div className="text-2xl font-bold">Orders</div>
-                <div className="animate-pulse">
-                    <div className="h-8 bg-gray-200 rounded w-1/3 mb-4"></div>
-                    <div className="h-64 bg-gray-200 rounded"></div>
-                </div>
-            </div>
-        );
+            await api("/orders", { method: "POST", body: JSON.stringify({ ...createForm, items: cartItems }) });
+            toast("Order created successfully");
+            setShowCreate(false);
+            setCreateForm({ customerName:"",customerEmail:"",shipAddress1:"",shipAddress2:"",shipCity:"",shipState:"",shipZip:"" });
+            setCartItems([]); fetchOrders();
+        } catch (err: any) { toast(err.message || "Failed to create order", "error"); }
+        finally { setCreating(false); }
     }
 
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Orders</h1>
-                    <p className="text-gray-600">Manage and track customer orders</p>
+                    <h1 className="page-title">Orders</h1>
+                    <p className="page-subtitle">Manage and fulfill customer orders · {totalOrders} total</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setShowExportModal(true)}>
+                <div className="flex gap-2.5">
+                    <motion.button whileHover={{ y:-1 }} whileTap={{ scale:0.97 }}
+                        onClick={() => setShowExport(true)}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white ring-1 ring-black/8 shadow-sm hover:shadow-md transition-all duration-200"
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
                         Export
-                    </Button>
-                    <Button onClick={() => setShowCreateOrderModal(true)}>Create order</Button>
+                    </motion.button>
+                    <motion.button whileHover={{ y:-1 }} whileTap={{ scale:0.97 }}
+                        onClick={() => setShowCreate(true)}
+                        className="btn-shine flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-200"
+                        style={{ background:"linear-gradient(135deg,#8b5cf6 0%,#7c3aed 100%)", boxShadow:"0 4px 16px rgba(124,58,237,0.35)" }}
+                    >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4"/></svg>
+                        New Order
+                    </motion.button>
                 </div>
             </div>
 
-            {/* View Tabs */}
-            <div className="flex space-x-1 bg-gray-100 p-1 rounded-lg border border-gray-200">
-                {viewOptions.map(option => (
-                    <button
-                        key={option.value}
-                        onClick={() => setViewType(option.value as ViewType)}
-                        className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
-                            viewType === option.value
-                                ? 'bg-white text-gray-900 shadow-sm border border-gray-200'
-                                : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+            {/* Tabs */}
+            <div className="flex items-center gap-1 border-b border-slate-200">
+                {TABS.map(t => (
+                    <button key={t.key} type="button" onClick={() => setTab(t.key)}
+                        className={`relative px-4 py-2.5 text-sm font-medium transition-colors -mb-px ${
+                            tab === t.key ? "text-brand-700" : "text-slate-500 hover:text-slate-700"
                         }`}
                     >
-                        {option.label} ({option.count})
+                        {tab === t.key && (
+                            <motion.div layoutId="orders-tab-indicator"
+                                className="absolute bottom-0 left-0 right-0 h-0.5 bg-brand-600 rounded-full"
+                                transition={{ duration: 0.2 }}
+                            />
+                        )}
+                        {t.label}
                     </button>
                 ))}
             </div>
 
-            {/* Search and Filters */}
-            <Card>
-                <CardContent className="p-4">
-                    <div className="flex gap-4 items-center">
-                        <div className="flex-1">
-                            <Input
-                                placeholder="Search orders by customer name, email, or order ID..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="max-w-md"
-                            />
-                        </div>
-                        <div className="flex gap-2">
-                            <Select 
-                                value={sortField} 
-                                onChange={(e) => setSortField(e.target.value as keyof Order)}
-                            >
-                                <option value="createdAt">Date</option>
-                                <option value="customerName">Customer</option>
-                                <option value="totalCents">Total</option>
-                                <option value="status">Status</option>
-                            </Select>
-                            <Button
-                                variant="outline"
-                                onClick={() => setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc')}
-                            >
-                                {sortDirection === 'asc' ? '↑' : '↓'}
-                            </Button>
-                        </div>
-                    </div>
-                </CardContent>
-            </Card>
+            {/* Toolbar */}
+            <div className="flex items-center gap-3">
+                <div className="relative flex-1 max-w-xs">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input
+                        className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 bg-white shadow-sm transition-all duration-200"
+                        placeholder="Search orders…"
+                        value={search} onChange={e => setSearch(e.target.value)}
+                    />
+                </div>
+                <AnimatePresence>
+                    {selectedIds.size > 0 && (
+                        <motion.div initial={{ opacity:0, scale:0.92 }} animate={{ opacity:1, scale:1 }} exit={{ opacity:0, scale:0.92 }}
+                            className="flex items-center gap-2 ml-auto bg-brand-50 border border-brand-200 rounded-xl px-3 py-1.5"
+                        >
+                            <span className="text-sm text-brand-700 font-medium">{selectedIds.size} selected</span>
+                            <button type="button" onClick={bulkFulfill}
+                                className="text-xs font-semibold text-brand-700 hover:text-brand-900 underline underline-offset-2 transition-colors">
+                                Mark fulfilled
+                            </button>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
+            </div>
 
-            {/* Orders Table */}
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <CardTitle>
-                            {filteredOrders.length} orders
-                            {selectedOrders.size > 0 && ` (${selectedOrders.size} selected)`}
-                        </CardTitle>
-                        <div className="flex gap-2">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={selectAllOrders}
-                            >
-                                {selectedOrders.size === filteredOrders.length ? 'Deselect all' : 'Select all'}
-                            </Button>
-                        </div>
+            {/* Table */}
+            <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card overflow-hidden">
+                {loading ? (
+                    <div className="p-8 space-y-3">
+                        {[1,2,3,4,5].map(i => (
+                            <div key={i} className="animate-pulse flex items-center gap-4">
+                                <div className="w-4 h-4 bg-slate-100 rounded" />
+                                <div className="w-8 h-8 bg-slate-100 rounded-full" />
+                                <div className="flex-1 space-y-1.5">
+                                    <div className="h-3 w-36 bg-slate-200 rounded" />
+                                    <div className="h-2.5 w-44 bg-slate-100 rounded" />
+                                </div>
+                                <div className="h-5 w-20 bg-slate-100 rounded-full" />
+                                <div className="h-4 w-16 bg-slate-100 rounded" />
+                            </div>
+                        ))}
                     </div>
-                </CardHeader>
-                <CardContent>
+                ) : filtered.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-16 text-slate-300">
+                        <svg className="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+                        <p className="text-sm text-slate-400 font-medium">No orders found</p>
+                        <p className="text-xs text-slate-300 mt-0.5">{search ? "Try a different search" : "Orders will appear here"}</p>
+                    </div>
+                ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full">
+                        <table className="data-table">
                             <thead>
-                                <tr className="border-b border-gray-200 bg-gray-50">
-                                    <th className="text-left p-3">
-                                        <input
-                                            type="checkbox"
-                                            checked={selectedOrders.size === filteredOrders.length && filteredOrders.length > 0}
-                                            onChange={selectAllOrders}
-                                            className="rounded border-gray-300 bg-white"
-                                        />
+                                <tr>
+                                    <th className="w-10 pl-5">
+                                        <input type="checkbox" title="Select all" aria-label="Select all"
+                                            checked={selectedIds.size === filtered.length && filtered.length > 0}
+                                            onChange={toggleAll} className="rounded border-slate-300 accent-brand-600" />
                                     </th>
-                                                                             <th 
-                                             className="text-left p-3 cursor-pointer hover:bg-gray-100"
-                                             onClick={() => handleSort('id')}
-                                         >
-                                        Order
-                                        {sortField === 'id' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
-                                    </th>
-                                                                             <th 
-                                             className="text-left p-3 cursor-pointer hover:bg-gray-100"
-                                             onClick={() => handleSort('customerName')}
-                                         >
-                                        Customer
-                                        {sortField === 'customerName' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
-                                    </th>
-                                    <th className="text-left p-3">Shop</th>
-                                                                             <th 
-                                             className="text-left p-3 cursor-pointer hover:bg-gray-100"
-                                             onClick={() => handleSort('totalCents')}
-                                         >
-                                        Total
-                                        {sortField === 'totalCents' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
-                                    </th>
-                                                                             <th 
-                                             className="text-left p-3 cursor-pointer hover:bg-gray-100"
-                                             onClick={() => handleSort('status')}
-                                         >
-                                        Status
-                                        {sortField === 'status' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
-                                    </th>
-                                                                             <th 
-                                             className="text-left p-3 cursor-pointer hover:bg-gray-100"
-                                             onClick={() => handleSort('createdAt')}
-                                         >
-                                        Date
-                                        {sortField === 'createdAt' && (sortDirection === 'asc' ? ' ↑' : ' ↓')}
-                                    </th>
-                                    <th className="text-right p-3">Actions</th>
+                                    <th>Order</th><th>Customer</th><th>Shop</th>
+                                    <th>Items</th><th>Total</th><th>Status</th>
+                                    <th>Date</th><th className="text-right pr-5">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredOrders.map((order) => (
-                                    <tr key={order.id} className="border-b border-gray-200 hover:bg-gray-50">
-                                        <td className="p-3">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedOrders.has(order.id)}
-                                                onChange={() => toggleOrderSelection(order.id)}
-                                                className="rounded border-gray-300 bg-white"
-                                            />
+                                {filtered.map((order, idx) => (
+                                    <motion.tr key={order.id}
+                                        initial={{ opacity:0, y:4 }}
+                                        animate={{ opacity:1, y:0 }}
+                                        transition={{ delay: idx * 0.02, duration: 0.2 }}
+                                    >
+                                        <td className="pl-5">
+                                            <input type="checkbox"
+                                                title={`Select order ${order.id.slice(-8).toUpperCase()}`}
+                                                aria-label={`Select order ${order.id.slice(-8).toUpperCase()}`}
+                                                checked={selectedIds.has(order.id)} onChange={() => toggleSelect(order.id)}
+                                                className="rounded border-slate-300 accent-brand-600" />
                                         </td>
-                                        <td className="p-3">
-                                            <div className="font-mono text-sm text-gray-600">
-                                                {order.id.slice(0, 8)}
+                                        <td>
+                                            <span className="font-mono text-xs font-medium text-brand-600 hover:text-brand-700 cursor-pointer"
+                                                onClick={() => setDetailOrder(order)}>
+                                                #{order.id.slice(-8).toUpperCase()}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <div className="flex items-center gap-2.5">
+                                                <div className="w-7 h-7 rounded-full bg-brand-100 flex items-center justify-center shrink-0">
+                                                    <span className="text-[10px] font-bold text-brand-600">
+                                                        {(order.customerName ?? "?")[0].toUpperCase()}
+                                                    </span>
+                                                </div>
+                                                <div>
+                                                    <p className="font-semibold text-slate-800 text-sm leading-none">{order.customerName}</p>
+                                                    <p className="text-xs text-slate-400 mt-0.5">{order.customerEmail}</p>
+                                                </div>
                                             </div>
                                         </td>
-                                        <td className="p-3">
-                                            <div className="font-medium">{order.customerName}</div>
-                                            <div className="text-sm text-gray-500">{order.customerEmail}</div>
+                                        <td>
+                                            <span className="text-sm text-slate-500">{order.shop?.name || "—"}</span>
                                         </td>
-                                        <td className="p-3">
-                                            {order.shop?.name || '—'}
+                                        <td>
+                                            <span className="text-sm text-slate-600 font-medium">{order.items?.length ?? 0}</span>
                                         </td>
-                                        <td className="p-3 font-medium">
-                                            ${(order.totalCents / 100).toFixed(2)}
+                                        <td>
+                                            <span className="text-sm font-bold text-slate-900 tabular-nums">{fmt(order.totalCents)}</span>
                                         </td>
-                                        <td className="p-3">
-                                            <Badge className={
-                                                order.status === 'UNFULFILLED' ? 'bg-yellow-600 text-yellow-100' :
-                                                order.status === 'FULFILLED' ? 'bg-green-600 text-green-100' :
-                                                'bg-gray-600 text-gray-100'
-                                            }>
-                                                {order.status}
+                                        <td>
+                                            <Badge variant={statusVariant(order.status)} size="sm">
+                                                {order.status.charAt(0) + order.status.slice(1).toLowerCase()}
                                             </Badge>
                                         </td>
-                                        <td className="p-3 text-sm text-gray-500">
-                                            {new Date(order.createdAt).toLocaleDateString()}
+                                        <td>
+                                            <span className="text-xs text-slate-400">
+                                                {new Date(order.createdAt).toLocaleDateString("en-US", { month:"short", day:"numeric" })}
+                                            </span>
                                         </td>
-                                        <td className="p-3 text-right">
-                                            <div className="flex gap-2 justify-end">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => markFulfilled(order.id)}
-                                                    disabled={order.status === 'FULFILLED'}
-                                                >
-                                                    {order.status === 'FULFILLED' ? 'Fulfilled' : 'Mark Fulfilled'}
-                                                </Button>
+                                        <td className="text-right pr-5">
+                                            <div className="flex items-center justify-end gap-1.5">
+                                                <button type="button" onClick={() => setDetailOrder(order)}
+                                                    className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+                                                    View
+                                                </button>
+                                                {order.status === "UNFULFILLED" && (
+                                                    <>
+                                                        <button type="button" onClick={() => markFulfilled(order.id)}
+                                                            className="px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors">
+                                                            Fulfill
+                                                        </button>
+                                                        <button type="button" onClick={() => cancelOrder(order.id)}
+                                                            className="px-2.5 py-1 rounded-lg text-xs font-medium text-red-500 hover:bg-red-50 hover:text-red-700 transition-colors">
+                                                            Cancel
+                                                        </button>
+                                                    </>
+                                                )}
                                             </div>
                                         </td>
-                                    </tr>
+                                    </motion.tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-                    
-                    {filteredOrders.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                            {searchTerm ? 'No orders match your search' : 'No orders found'}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
+                )}
+            </div>
 
-            {/* Export Modal */}
-                         {showExportModal && (
-                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                     <div className="bg-white rounded-lg p-6 w-96 max-w-full">
-                        <h3 className="text-lg font-semibold mb-4">Export Orders</h3>
-                        
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Export</label>
-                                <Select 
-                                    value={exportType} 
-                                    onChange={(e) => setExportType(e.target.value as any)}
-                                >
-                                    <option value="current">Current page</option>
-                                    <option value="all">All orders</option>
-                                    <option value="selected" disabled={selectedOrders.size === 0}>
-                                        Selected: {selectedOrders.size} orders
-                                    </option>
-                                    <option value="search" disabled={!searchTerm}>
-                                        50+ orders matching your search
-                                    </option>
-                                    <option value="date">Orders by date</option>
-                                </Select>
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Export as</label>
-                                <Select 
-                                    value={exportFormat} 
-                                    onChange={(e) => setExportFormat(e.target.value as any)}
-                                >
-                                    <option value="excel">CSV for Excel, Numbers, or other spreadsheet programs</option>
-                                    <option value="csv">Plain CSV file</option>
-                                </Select>
-                            </div>
-                        </div>
-                        
-                        <div className="flex gap-2 mt-6">
-                            <Button
-                                variant="outline"
-                                onClick={() => setShowExportModal(false)}
-                                className="flex-1"
-                            >
-                                Cancel
-                            </Button>
-                            <Button
-                                variant="outline"
-                                className="flex-1"
-                            >
-                                Export transaction histories
-                            </Button>
-                            <Button
-                                onClick={exportOrders}
-                                className="flex-1"
-                            >
-                                Export orders
-                            </Button>
-                        </div>
+            {/* Pagination */}
+            {totalPages > 1 && (
+                <div className="flex items-center justify-between text-sm text-slate-500">
+                    <span>{totalOrders} total orders</span>
+                    <div className="flex items-center gap-1">
+                        <button type="button" disabled={page <= 1} onClick={() => setPage(p => p - 1)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            ← Prev
+                        </button>
+                        <span className="px-3 py-1.5 text-xs text-slate-400">Page {page} of {totalPages}</span>
+                        <button type="button" disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
+                            className="px-3 py-1.5 rounded-lg text-sm font-medium border border-slate-200 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors">
+                            Next →
+                        </button>
                     </div>
                 </div>
             )}
+
+            {/* Order Detail Modal */}
+            <Modal open={!!detailOrder} onClose={() => setDetailOrder(null)}
+                title={`Order #${detailOrder?.id.slice(-8).toUpperCase()}`}
+                description={detailOrder ? `Placed ${new Date(detailOrder.createdAt).toLocaleString()}` : ""} size="lg">
+                {detailOrder && (
+                    <div className="space-y-5">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div className="bg-slate-50 rounded-xl p-4">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Customer</p>
+                                <p className="text-sm font-semibold text-slate-900">{detailOrder.customerName}</p>
+                                <p className="text-sm text-slate-500 mt-0.5">{detailOrder.customerEmail}</p>
+                            </div>
+                            <div className="bg-slate-50 rounded-xl p-4">
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Ship To</p>
+                                <p className="text-sm text-slate-700">{detailOrder.shipAddress1 || "—"}</p>
+                                {detailOrder.shipCity && <p className="text-sm text-slate-500">{detailOrder.shipCity}, {detailOrder.shipState} {detailOrder.shipZip}</p>}
+                            </div>
+                        </div>
+                        <div>
+                            <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                                Items ({detailOrder.items?.length})
+                            </p>
+                            <div className="rounded-xl overflow-hidden border border-slate-100">
+                                {detailOrder.items?.map((item: any, i: number) => (
+                                    <div key={i} className="flex justify-between items-center px-4 py-3 border-b border-slate-50 last:border-0 hover:bg-slate-50/60 transition-colors text-sm">
+                                        <span className="text-slate-800 font-medium">{item.product?.name ?? "Item"} {item.size && <span className="text-slate-400 font-normal">({item.size})</span>}</span>
+                                        <span className="text-slate-400 mx-4">×{item.quantity}</span>
+                                        <span className="font-bold text-slate-900 tabular-nums">{fmt(item.priceCents * item.quantity)}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                        {detailOrder.vendorOrders && detailOrder.vendorOrders.length > 0 && (
+                            <div>
+                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Vendor Orders</p>
+                                <div className="rounded-xl overflow-hidden border border-slate-100 divide-y divide-slate-50">
+                                    {detailOrder.vendorOrders.map(vo => (
+                                        <div key={vo.id} className="flex items-center justify-between px-4 py-3 text-sm">
+                                            <div>
+                                                <span className="font-medium text-slate-800">{vo.vendor}</span>
+                                                {vo.externalOrderNumber && <span className="ml-2 text-xs text-slate-400 font-mono">#{vo.externalOrderNumber}</span>}
+                                            </div>
+                                            <Badge variant={vo.status === "SUBMITTED" ? "success" : vo.status === "FAILED" ? "danger" : "default"}>
+                                                {vo.status}
+                                            </Badge>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                        <div className="flex justify-between items-center pt-1">
+                            <div className="flex items-center gap-2">
+                                <Badge variant={statusVariant(detailOrder.status)}>{detailOrder.status}</Badge>
+                                {detailOrder.shop && <span className="text-xs text-slate-400">via {detailOrder.shop.name}</span>}
+                            </div>
+                            <p className="text-lg font-bold text-slate-900">{fmt(detailOrder.totalCents)}</p>
+                        </div>
+                        <ModalFooter>
+                            <Button variant="outline" onClick={() => setDetailOrder(null)}>Close</Button>
+                            {detailOrder.status === "UNFULFILLED" && (
+                                <>
+                                    <Button variant="danger" onClick={() => { cancelOrder(detailOrder.id); setDetailOrder(null); }}>Cancel Order</Button>
+                                    <Button onClick={() => { markFulfilled(detailOrder.id); setDetailOrder(null); }}>Mark Fulfilled</Button>
+                                </>
+                            )}
+                        </ModalFooter>
+                    </div>
+                )}
+            </Modal>
 
             {/* Create Order Modal */}
-            {showCreateOrderModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 w-96 max-w-full">
-                        <h3 className="text-lg font-semibold mb-4">Create New Order</h3>
-                        
-                        <div className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Customer Name</label>
-                                <Input placeholder="Enter customer name" />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Customer Email</label>
-                                <Input type="email" placeholder="Enter customer email" />
-                            </div>
-                            
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Shipping Address</label>
-                                <Input placeholder="Street address" />
-                            </div>
-                            
-                            <div className="grid grid-cols-3 gap-2">
-                                <Input placeholder="City" />
-                                <Input placeholder="State" />
-                                <Input placeholder="ZIP" />
-                            </div>
-                        </div>
-                        
-                        <div className="flex gap-2 mt-6">
-                            <Button
-                                variant="outline"
-                                onClick={() => setShowCreateOrderModal(false)}
-                                className="flex-1"
-                            >
-                                Cancel
-                            </Button>
-                            <Button className="flex-1">
-                                Create Order
-                            </Button>
-                        </div>
+            <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create Order" size="lg">
+                <form onSubmit={createOrder} className="space-y-4">
+                    <div className="grid grid-cols-2 gap-3">
+                        <Input label="Customer Name" required value={createForm.customerName}
+                            onChange={e => setCreateForm(p => ({ ...p, customerName: e.target.value }))} />
+                        <Input label="Customer Email" type="email" required value={createForm.customerEmail}
+                            onChange={e => setCreateForm(p => ({ ...p, customerEmail: e.target.value }))} />
                     </div>
-                </div>
-            )}
+                    <Input label="Address" required value={createForm.shipAddress1}
+                        onChange={e => setCreateForm(p => ({ ...p, shipAddress1: e.target.value }))} />
+                    <Input placeholder="Apt, suite, etc. (optional)" value={createForm.shipAddress2}
+                        onChange={e => setCreateForm(p => ({ ...p, shipAddress2: e.target.value }))} />
+                    <div className="grid grid-cols-3 gap-3">
+                        <Input label="City" required value={createForm.shipCity}
+                            onChange={e => setCreateForm(p => ({ ...p, shipCity: e.target.value }))} />
+                        <Input label="State" required value={createForm.shipState}
+                            onChange={e => setCreateForm(p => ({ ...p, shipState: e.target.value }))} />
+                        <Input label="ZIP" required value={createForm.shipZip}
+                            onChange={e => setCreateForm(p => ({ ...p, shipZip: e.target.value }))} />
+                    </div>
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <label className="field-label mb-0">Items</label>
+                            <button type="button" onClick={() => setCartItems(p => [...p, { productId:"", quantity:1 }])}
+                                className="text-xs font-semibold text-brand-600 hover:text-brand-700 transition-colors">
+                                + Add item
+                            </button>
+                        </div>
+                        {cartItems.length === 0 ? (
+                            <p className="text-sm text-slate-400 italic py-3 text-center bg-slate-50 rounded-xl border border-dashed border-slate-200">No items yet — click "Add item"</p>
+                        ) : (
+                            <div className="space-y-2">
+                                {cartItems.map((item, i) => (
+                                    <div key={i} className="flex gap-2 items-center">
+                                        <Select className="flex-1" value={item.productId}
+                                            onChange={e => setCartItems(p => p.map((it,idx) => idx===i ? {...it, productId:e.target.value} : it))}>
+                                            <option value="">Select product</option>
+                                            {products.map(p => <option key={p.id} value={p.id}>{p.name} — ${(p.priceCents/100).toFixed(2)}</option>)}
+                                        </Select>
+                                        <input type="number" min={1} value={item.quantity} title="Quantity" aria-label="Quantity" placeholder="1"
+                                            onChange={e => setCartItems(p => p.map((it,idx) => idx===i ? {...it, quantity:+e.target.value} : it))}
+                                            className="w-20 rounded-xl border border-slate-200 px-2 py-2 text-sm text-center outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20" />
+                                        <button type="button" title="Remove" aria-label="Remove item"
+                                            onClick={() => setCartItems(p => p.filter((_,idx) => idx!==i))}
+                                            className="p-1.5 text-slate-300 hover:text-red-500 transition-colors rounded-lg hover:bg-red-50">
+                                            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12"/></svg>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                    <ModalFooter>
+                        <Button type="button" variant="outline" onClick={() => setShowCreate(false)}>Cancel</Button>
+                        <Button type="submit" loading={creating}>Create Order</Button>
+                    </ModalFooter>
+                </form>
+            </Modal>
+
+            {/* Export Modal */}
+            <Modal open={showExport} onClose={() => setShowExport(false)} title="Export Orders" size="sm">
+                <p className="text-sm text-slate-600 mb-4">
+                    Export <strong className="text-slate-900">{filtered.length}</strong> order{filtered.length !== 1 ? "s" : ""} based on current filters.
+                </p>
+                <ModalFooter>
+                    <Button variant="outline" onClick={() => setShowExport(false)}>Cancel</Button>
+                    <Button onClick={exportCSV}>Download CSV</Button>
+                </ModalFooter>
+            </Modal>
         </div>
     );
 }

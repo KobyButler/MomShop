@@ -1,16 +1,28 @@
 import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { triggerVendorFulfillment } from '../vendors/fulfill.js';
+import { requireAuth } from '../middleware/auth.js';
+import { sendOrderConfirmation } from '../utils/email.js';
 
 export const router = Router();
 
-// list; optional ?status=UNFULFILLED and ?groupBy=collection
-router.get('/', async (req, res) => {
+// list; optional ?status=UNFULFILLED, ?groupBy=collection, ?limit=N, ?page=1 (admin only)
+router.get('/', requireAuth, async (req, res) => {
     const status = (req.query.status as string) ?? undefined;
-    const orders = await prisma.order.findMany({
-        where: status ? { status } : undefined,
-        include: { items: { include: { product: { include: { collection: true } } } }, shop: true }
-    });
+    const limit = req.query.limit ? parseInt(req.query.limit as string, 10) : 50;
+    const page = req.query.page ? Math.max(1, parseInt(req.query.page as string, 10)) : 1;
+    const skip = (page - 1) * limit;
+
+    const [orders, total] = await Promise.all([
+        prisma.order.findMany({
+            where: status ? { status } : undefined,
+            include: { items: { include: { product: { include: { collection: true } } } }, shop: true, vendorOrders: true },
+            orderBy: { createdAt: 'desc' },
+            take: limit,
+            skip
+        }),
+        prisma.order.count({ where: status ? { status } : undefined })
+    ]);
 
     if (req.query.groupBy === 'collection') {
         const grouped: Record<string, any[]> = {};
@@ -24,7 +36,7 @@ router.get('/', async (req, res) => {
         return res.json(grouped);
     }
 
-    res.json(orders);
+    res.json({ data: orders, total, page, limit, pages: Math.ceil(total / limit) });
 });
 
 // create order (public checkout posts here)
@@ -86,16 +98,38 @@ router.post('/', async (req, res) => {
     });
 
     triggerVendorFulfillment(order).catch(err => console.error('fulfillment error', err));
+
+    // Send confirmation email (fire-and-forget)
+    sendOrderConfirmation({
+        orderId: order.id,
+        customerName: order.customerName,
+        customerEmail: order.customerEmail,
+        totalCents: order.totalCents,
+        shopName: shop?.name,
+        items: order.items.map(i => ({
+            name: i.product.name, quantity: i.quantity,
+            size: i.size, color: i.color, priceCents: i.priceCents
+        }))
+    }).catch(err => console.error('email error', err));
+
     res.json(order);
 });
 
-router.post('/:id/fulfill', async (req, res) => {
+router.post('/:id/fulfill', requireAuth, async (req, res) => {
     const o = await prisma.order.update({ where: { id: req.params.id }, data: { status: 'FULFILLED' } });
     res.json(o);
 });
 
-// CSV of shipping addresses for label tools
-router.get('/shipping/export', async (req, res) => {
+router.post('/:id/cancel', requireAuth, async (req, res) => {
+    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    if (!existing) return res.status(404).json({ error: 'order not found' });
+    if (existing.status === 'FULFILLED') return res.status(400).json({ error: 'cannot cancel a fulfilled order' });
+    const o = await prisma.order.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
+    res.json(o);
+});
+
+// CSV of shipping addresses for label tools (admin only)
+router.get('/shipping/export', requireAuth, async (req, res) => {
     const status = (req.query.status as string) ?? 'UNFULFILLED';
     const orders = await prisma.order.findMany({ where: { status } });
     const rows = [

@@ -14,3 +14,16 @@ router.post('/', async (req, res) => {
     });
     res.json(d);
 });
+
+router.patch('/:id', async (req, res) => {
+    const { active } = req.body;
+    try {
+        const d = await prisma.discountCode.update({
+            where: { id: req.params.id },
+            data: { ...(active !== undefined && { active }) }
+        });
+        res.json(d);
+    } catch {
+        res.status(404).json({ error: 'not found' });
+    }
+});

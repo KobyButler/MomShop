@@ -1,13 +1,36 @@
 // Lightweight fetch helper used across admin + shop
+
+function getToken(): string | null {
+    if (typeof window === "undefined") return null;
+    return localStorage.getItem("auth_token");
+}
+
 export async function api(
     path: string,
     init?: RequestInit
 ): Promise<any> {
     const base = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api";
+    const token = getToken();
+    const authHeader: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+
     const res = await fetch(`${base}${path}`, {
-        headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+        headers: {
+            "Content-Type": "application/json",
+            ...authHeader,
+            ...(init?.headers || {})
+        },
         ...init
     });
+
+    if (res.status === 401) {
+        // Token expired or invalid — clear and redirect to login
+        if (typeof window !== "undefined") {
+            localStorage.removeItem("auth_token");
+            window.location.href = "/login";
+        }
+        throw new Error("unauthorized");
+    }
+
     if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try {

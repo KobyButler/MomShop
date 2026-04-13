@@ -1,444 +1,162 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "../../../lib/api";
-import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { api } from "@/app/lib/api";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { useToast } from "@/components/ui/toast";
+import { motion, AnimatePresence } from "framer-motion";
 
-type ShippingLabel = {
-    id: string;
-    orderId: string;
-    order: {
-        id: string;
-        customerName: string;
-        customerEmail: string;
-        shipAddress1: string;
-        shipCity: string;
-        shipState: string;
-        shipZip: string;
-        totalCents: number;
-    };
-    trackingNumber?: string;
-    carrier: string;
-    status: "pending" | "created" | "printed" | "shipped" | "delivered";
-    createdAt: string;
-    shippedAt?: string;
+type LabelRow = {
+    id:string; orderId:string; customerName:string; customerEmail:string;
+    shipAddress1:string; shipCity:string; shipState:string; shipZip:string;
+    status:"pending"|"printed"|"shipped";
 };
 
+const statusColor: Record<string, string> = { pending:"warning", printed:"info", shipped:"success" };
+
 export default function ShippingLabelsPage() {
-    const [labels, setLabels] = useState<ShippingLabel[]>([]);
-    const [filteredLabels, setFilteredLabels] = useState<ShippingLabel[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [searchTerm, setSearchTerm] = useState("");
-    const [statusFilter, setStatusFilter] = useState<string>("");
-    const [carrierFilter, setCarrierFilter] = useState<string>("");
-    const [selectedLabels, setSelectedLabels] = useState<Set<string>>(new Set());
-    const [showCreateModal, setShowCreateModal] = useState(false);
-    const [createForm, setCreateForm] = useState({
-        orderId: "",
-        carrier: "USPS",
-        service: "Priority Mail",
-    });
+    const { toast }   = useToast();
+    const [rows, setRows]         = useState<LabelRow[]>([]);
+    const [loading, setLoading]   = useState(true);
+    const [search, setSearch]     = useState("");
+    const [statusFilter, setStatusFilter] = useState("");
+    const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
 
     useEffect(() => {
-        fetchLabels();
+        api("/orders?status=UNFULFILLED&limit=500")
+            .then((d: any) => {
+                const orders = Array.isArray(d) ? d : d?.data ?? [];
+                setRows(orders.map((o: any) => ({ id:o.id, orderId:o.id, customerName:o.customerName, customerEmail:o.customerEmail,
+                    shipAddress1:o.shipAddress1, shipCity:o.shipCity, shipState:o.shipState, shipZip:o.shipZip, status:"pending" as const })));
+            }).catch(console.error).finally(() => setLoading(false));
     }, []);
 
-    useEffect(() => {
-        filterLabels();
-    }, [labels, searchTerm, statusFilter, carrierFilter]);
+    const filtered = rows.filter(r => {
+        const q = search.toLowerCase();
+        return (!q || r.customerName.toLowerCase().includes(q) || r.customerEmail.toLowerCase().includes(q)) && (!statusFilter || r.status === statusFilter);
+    });
 
-    async function fetchLabels() {
-        try {
-            setLoading(true);
-            // what/why: simulate labels from orders until a real labels endpoint exists
-            const orders = await api("/orders?status=UNFULFILLED");
-            const mockLabels: ShippingLabel[] = orders.map((order: any) => ({
-                id: `label_${order.id}`,
-                orderId: order.id,
-                order: {
-                    id: order.id,
-                    customerName: order.customerName,
-                    customerEmail: order.customerEmail,
-                    shipAddress1: order.shipAddress1,
-                    shipCity: order.shipCity,
-                    shipState: order.shipState,
-                    shipZip: order.shipZip,
-                    totalCents: order.totalCents,
-                },
-                trackingNumber:
-                    Math.random() > 0.5
-                        ? `TRK${Math.random().toString(36).substr(2, 9).toUpperCase()}`
-                        : undefined,
-                carrier: ["USPS", "FedEx", "UPS"][Math.floor(Math.random() * 3)],
-                status: ["pending", "created", "printed", "shipped", "delivered"][
-                    Math.floor(Math.random() * 5)
-                ] as ShippingLabel["status"],
-                createdAt: order.createdAt,
-                shippedAt:
-                    Math.random() > 0.7
-                        ? new Date(
-                            Date.now() - Math.random() * 7 * 24 * 60 * 60 * 1000
-                        ).toISOString()
-                        : undefined,
-            }));
-            setLabels(mockLabels);
-        } catch (error) {
-            console.error("Error fetching labels:", error);
-        } finally {
-            setLoading(false);
-        }
+    function toggleSelect(id: string) { setSelectedIds(p => { const n=new Set(p); n.has(id)?n.delete(id):n.add(id); return n; }); }
+    function selectAll() { setSelectedIds(p => p.size===filtered.length ? new Set() : new Set(filtered.map(r=>r.id))); }
+    function markStatus(ids: string[], status: LabelRow["status"]) {
+        setRows(p => p.map(r => ids.includes(r.id) ? { ...r, status } : r));
+        setSelectedIds(new Set()); toast(`${ids.length} label(s) marked as ${status}`);
     }
-
-    function filterLabels() {
-        const q = searchTerm.toLowerCase();
-        const filtered = labels.filter((label) => {
-            const matchesSearch =
-                label.order.customerName.toLowerCase().includes(q) ||
-                label.order.customerEmail.toLowerCase().includes(q) ||
-                label.trackingNumber?.toLowerCase().includes(q) ||
-                "";
-            const matchesStatus = !statusFilter || label.status === statusFilter;
-            const matchesCarrier = !carrierFilter || label.carrier === carrierFilter;
-            return matchesSearch && matchesStatus && matchesCarrier;
-        });
-        setFilteredLabels(filtered);
-    }
-
-    function toggleLabelSelection(labelId: string) {
-        const next = new Set(selectedLabels);
-        next.has(labelId) ? next.delete(labelId) : next.add(labelId);
-        setSelectedLabels(next);
-    }
-
-    function selectAllLabels() {
-        if (selectedLabels.size === filteredLabels.length) {
-            setSelectedLabels(new Set());
-        } else {
-            setSelectedLabels(new Set(filteredLabels.map((l) => l.id)));
-        }
-    }
-
-    async function createShippingLabel(e: any) {
-        e.preventDefault();
-        try {
-            console.log("Creating shipping label:", createForm);
-            setShowCreateModal(false);
-            setCreateForm({ orderId: "", carrier: "USPS", service: "Priority Mail" });
-            await fetchLabels();
-        } catch (error) {
-            console.error("Error creating shipping label:", error);
-        }
-    }
-
-    async function printLabels() {
-        const ids = Array.from(selectedLabels);
-        if (ids.length === 0) return;
-        console.log("Printing labels:", ids);
-        alert(`Printing ${ids.length} shipping labels`);
-    }
-
-    async function markAsShipped(labelId: string) {
-        try {
-            setLabels((prev) =>
-                prev.map((label) =>
-                    label.id === labelId
-                        ? { ...label, status: "shipped", shippedAt: new Date().toISOString() }
-                        : label
-                )
-            );
-        } catch (error) {
-            console.error("Error marking label as shipped:", error);
-        }
-    }
-
-    const statusOptions = [
-        { value: "", label: "All Statuses" },
-        { value: "pending", label: "Pending" },
-        { value: "created", label: "Created" },
-        { value: "printed", label: "Printed" },
-        { value: "shipped", label: "Shipped" },
-        { value: "delivered", label: "Delivered" },
-    ];
-
-    const carrierOptions = [
-        { value: "", label: "All Carriers" },
-        { value: "USPS", label: "USPS" },
-        { value: "FedEx", label: "FedEx" },
-        { value: "UPS", label: "UPS" },
-    ];
-
-    const serviceOptions = [
-        "Priority Mail",
-        "First Class Mail",
-        "Media Mail",
-        "Ground",
-        "Express",
-        "Overnight",
-    ];
-
-    if (loading) {
-        return (
-            <div className="space-y-6">
-                <div className="text-2xl font-bold">Shipping Labels</div>
-                <div className="animate-pulse">
-                    <div className="h-8 bg-gray-200 rounded w-1/3 mb-4" />
-                    <div className="h-64 bg-gray-200 rounded" />
-                </div>
-            </div>
-        );
+    function exportCSV() {
+        const url = `${process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api"}/orders/shipping/export?status=UNFULFILLED`;
+        window.open(url, "_blank"); toast("Downloading shipping CSV");
     }
 
     return (
         <div className="space-y-6">
-            {/* Header */}
-            <div className="flex justify-between items-center">
+            <div className="flex items-center justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold text-gray-900">Shipping Labels</h1>
-                    <p className="text-gray-600">Create and manage shipping labels for orders</p>
+                    <h1 className="page-title">Shipping Labels</h1>
+                    <p className="page-subtitle">Unfulfilled orders ready for shipment</p>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="outline" onClick={() => setShowCreateModal(true)}>
-                        Create Label
-                    </Button>
-                    <Button onClick={printLabels} disabled={selectedLabels.size === 0}>
-                        Print Selected ({selectedLabels.size})
-                    </Button>
+                <div className="flex gap-2.5">
+                    <motion.button type="button" whileHover={{ y:-1 }} whileTap={{ scale:0.97 }} onClick={exportCSV}
+                        className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white ring-1 ring-black/8 shadow-sm hover:shadow-md transition-all duration-200">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                        Export CSV
+                    </motion.button>
+                    <AnimatePresence>
+                        {selectedIds.size > 0 && (
+                            <motion.div initial={{ opacity:0, scale:0.92 }} animate={{ opacity:1, scale:1 }} exit={{ opacity:0, scale:0.92 }} className="flex gap-2">
+                                <motion.button type="button" whileHover={{ y:-1 }} whileTap={{ scale:0.97 }} onClick={() => { window.print(); toast(`Printing ${selectedIds.size} label(s)`); }}
+                                    className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white ring-1 ring-black/8 shadow-sm hover:shadow-md transition-all duration-200">
+                                    🖨️ Print ({selectedIds.size})
+                                </motion.button>
+                                <motion.button type="button" whileHover={{ y:-1 }} whileTap={{ scale:0.97 }} onClick={() => markStatus(Array.from(selectedIds), "shipped")}
+                                    className="btn-shine flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-200"
+                                    style={{ background:"linear-gradient(135deg,#10b981 0%,#059669 100%)", boxShadow:"0 4px 16px rgba(16,185,129,0.35)" }}>
+                                    Mark Shipped
+                                </motion.button>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
             </div>
 
-            {/* Search and Filters */}
-            <Card>
-                <CardContent className="p-4">
-                    <div className="flex gap-4 items-center">
-                        <div className="flex-1">
-                            <Input
-                                placeholder="Search by customer name, email, or tracking number..."
-                                value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="max-w-md"
-                            />
-                        </div>
-                        <Select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
-                            {statusOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </Select>
-                        <Select value={carrierFilter} onChange={(e) => setCarrierFilter(e.target.value)}>
-                            {carrierOptions.map((option) => (
-                                <option key={option.value} value={option.value}>
-                                    {option.label}
-                                </option>
-                            ))}
-                        </Select>
-                    </div>
-                </CardContent>
-            </Card>
+            <div className="flex items-center gap-3">
+                <div className="relative max-w-xs flex-1">
+                    <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    <input className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 bg-white shadow-sm transition-all"
+                        placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
+                </div>
+                <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-36">
+                    <option value="">All statuses</option>
+                    <option value="pending">Pending</option>
+                    <option value="printed">Printed</option>
+                    <option value="shipped">Shipped</option>
+                </Select>
+            </div>
 
-            {/* Labels Table */}
-            <Card>
-                <CardHeader>
-                    <div className="flex justify-between items-center">
-                        <CardTitle>
-                            {filteredLabels.length} shipping labels
-                            {selectedLabels.size > 0 && ` (${selectedLabels.size} selected)`}
-                        </CardTitle>
-                        <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={selectAllLabels}>
-                                {selectedLabels.size === filteredLabels.length ? "Deselect all" : "Select all"}
-                            </Button>
-                        </div>
+            <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card overflow-hidden">
+                {loading ? (
+                    <div className="p-8 space-y-3">
+                        {[1,2,3,4].map(i => (<div key={i} className="animate-pulse flex items-center gap-4"><div className="w-4 h-4 bg-slate-100 rounded"/><div className="flex-1 h-3 bg-slate-200 rounded"/><div className="h-3 w-40 bg-slate-100 rounded"/><div className="h-5 w-16 bg-slate-100 rounded-full"/></div>))}
                     </div>
-                </CardHeader>
-                <CardContent>
+                ) : filtered.length === 0 ? (
+                    <div className="flex flex-col items-center py-16 text-slate-300">
+                        <svg className="w-12 h-12 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/></svg>
+                        <p className="text-sm text-slate-400 font-medium">No orders to ship</p>
+                        <p className="text-xs text-slate-300 mt-0.5">Unfulfilled orders will appear here</p>
+                    </div>
+                ) : (
                     <div className="overflow-x-auto">
-                        <table className="w-full">
+                        <table className="data-table">
                             <thead>
-                                <tr className="border-b border-gray-200 bg-gray-50">
-                                    <th className="text-left p-3">
-                                        <input
-                                            type="checkbox"
-                                            checked={
-                                                selectedLabels.size === filteredLabels.length &&
-                                                filteredLabels.length > 0
-                                            }
-                                            onChange={selectAllLabels}
-                                            className="rounded border-gray-300 bg-white"
-                                        />
+                                <tr>
+                                    <th className="pl-5 w-10">
+                                        <input type="checkbox" title="Select all" aria-label="Select all"
+                                            checked={selectedIds.size===filtered.length && filtered.length>0} onChange={selectAll}
+                                            className="rounded border-slate-300 accent-brand-600" />
                                     </th>
-                                    <th className="text-left p-3">Order</th>
-                                    <th className="text-left p-3">Customer</th>
-                                    <th className="text-left p-3">Shipping Address</th>
-                                    <th className="text-left p-3">Carrier</th>
-                                    <th className="text-left p-3">Tracking</th>
-                                    <th className="text-left p-3">Status</th>
-                                    <th className="text-left p-3">Created</th>
-                                    <th className="text-right p-3">Actions</th>
+                                    <th>Order</th><th>Customer</th><th>Ship To</th><th>Status</th><th className="text-right pr-5">Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {filteredLabels.map((label) => (
-                                    <tr
-                                        key={label.id}
-                                        className="border-b border-gray-200 hover:bg-gray-50"
-                                    >
-                                        <td className="p-3">
-                                            <input
-                                                type="checkbox"
-                                                checked={selectedLabels.has(label.id)}
-                                                onChange={() => toggleLabelSelection(label.id)}
-                                                className="rounded border-gray-300 bg-white"
-                                            />
+                                {filtered.map((r, idx) => (
+                                    <motion.tr key={r.id} initial={{ opacity:0, y:4 }} animate={{ opacity:1, y:0 }} transition={{ delay:idx*0.025, duration:0.2 }}>
+                                        <td className="pl-5">
+                                            <input type="checkbox" title={`Select ${r.customerName}`} aria-label={`Select ${r.customerName}`}
+                                                checked={selectedIds.has(r.id)} onChange={() => toggleSelect(r.id)}
+                                                className="rounded border-slate-300 accent-brand-600" />
                                         </td>
-                                        <td className="p-3">
-                                            <div className="font-mono text-sm text-gray-700">
-                                                {label.order.id.slice(0, 8)}
+                                        <td><code className="text-xs font-mono font-medium text-brand-600">#{r.orderId.slice(-8).toUpperCase()}</code></td>
+                                        <td>
+                                            <p className="text-sm font-semibold text-slate-800">{r.customerName}</p>
+                                            <p className="text-xs text-slate-400">{r.customerEmail}</p>
+                                        </td>
+                                        <td>
+                                            <p className="text-sm text-slate-700">{r.shipAddress1 || "—"}</p>
+                                            {r.shipCity && <p className="text-xs text-slate-400">{r.shipCity}, {r.shipState} {r.shipZip}</p>}
+                                        </td>
+                                        <td><Badge variant={statusColor[r.status] as any} size="sm">{r.status.charAt(0).toUpperCase()+r.status.slice(1)}</Badge></td>
+                                        <td className="text-right pr-5">
+                                            <div className="flex items-center justify-end gap-1.5">
+                                                {r.status==="pending" && (
+                                                    <button type="button" onClick={() => markStatus([r.id],"printed")}
+                                                        className="px-2.5 py-1 rounded-lg text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors">
+                                                        Mark Printed
+                                                    </button>
+                                                )}
+                                                {r.status!=="shipped" && (
+                                                    <button type="button" onClick={() => markStatus([r.id],"shipped")}
+                                                        className="px-2.5 py-1 rounded-lg text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 transition-colors">
+                                                        Mark Shipped
+                                                    </button>
+                                                )}
                                             </div>
                                         </td>
-                                        <td className="p-3">
-                                            <div className="font-medium">{label.order.customerName}</div>
-                                            <div className="text-sm text-gray-500">
-                                                {label.order.customerEmail}
-                                            </div>
-                                        </td>
-                                        <td className="p-3">
-                                            <div className="text-sm">
-                                                {label.order.shipAddress1}
-                                                <br />
-                                                {label.order.shipCity}, {label.order.shipState} {label.order.shipZip}
-                                            </div>
-                                        </td>
-                                        <td className="p-3">
-                                            <Badge className="bg-blue-100 text-blue-800">{label.carrier}</Badge>
-                                        </td>
-                                        <td className="p-3">
-                                            {label.trackingNumber ? (
-                                                <div className="font-mono text-sm text-blue-700">
-                                                    {label.trackingNumber}
-                                                </div>
-                                            ) : (
-                                                <span className="text-gray-500">—</span>
-                                            )}
-                                        </td>
-                                        <td className="p-3">
-                                            <Badge
-                                                className={
-                                                    label.status === "pending"
-                                                        ? "bg-yellow-100 text-yellow-800"
-                                                        : label.status === "created"
-                                                            ? "bg-blue-100 text-blue-800"
-                                                            : label.status === "printed"
-                                                                ? "bg-purple-100 text-purple-800"
-                                                                : label.status === "shipped"
-                                                                    ? "bg-green-100 text-green-800"
-                                                                    : "bg-emerald-100 text-emerald-800" /* delivered */
-                                                }
-                                            >
-                                                {label.status.charAt(0).toUpperCase() + label.status.slice(1)}
-                                            </Badge>
-                                        </td>
-                                        <td className="p-3 text-sm text-gray-600">
-                                            {new Date(label.createdAt).toLocaleDateString()}
-                                        </td>
-                                        <td className="p-3 text-right">
-                                            <div className="flex gap-2 justify-end">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    onClick={() => markAsShipped(label.id)}
-                                                    disabled={label.status === "shipped" || label.status === "delivered"}
-                                                >
-                                                    {label.status === "shipped" ? "Shipped" : "Mark Shipped"}
-                                                </Button>
-                                                <Button variant="outline" size="sm">Print</Button>
-                                            </div>
-                                        </td>
-                                    </tr>
+                                    </motion.tr>
                                 ))}
                             </tbody>
                         </table>
                     </div>
-
-                    {filteredLabels.length === 0 && (
-                        <div className="text-center py-8 text-gray-500">
-                            {searchTerm || statusFilter || carrierFilter
-                                ? "No labels match your filters"
-                                : "No shipping labels found"}
-                        </div>
-                    )}
-                </CardContent>
-            </Card>
-
-            {/* Create Label Modal */}
-            {showCreateModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 w-96 max-w-full border border-gray-200 shadow-sm">
-                        <h3 className="text-lg font-semibold mb-4">Create Shipping Label</h3>
-
-                        <form onSubmit={createShippingLabel} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Order ID</label>
-                                <Input
-                                    placeholder="Enter order ID"
-                                    value={createForm.orderId}
-                                    onChange={(e) =>
-                                        setCreateForm({ ...createForm, orderId: e.target.value })
-                                    }
-                                    required
-                                />
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Carrier</label>
-                                <Select
-                                    value={createForm.carrier}
-                                    onChange={(e) =>
-                                        setCreateForm({ ...createForm, carrier: e.target.value })
-                                    }
-                                >
-                                    <option value="USPS">USPS</option>
-                                    <option value="FedEx">FedEx</option>
-                                    <option value="UPS">UPS</option>
-                                </Select>
-                            </div>
-
-                            <div>
-                                <label className="block text-sm font-medium mb-2">Service</label>
-                                <Select
-                                    value={createForm.service}
-                                    onChange={(e) =>
-                                        setCreateForm({ ...createForm, service: e.target.value })
-                                    }
-                                >
-                                    {serviceOptions.map((service) => (
-                                        <option key={service} value={service}>
-                                            {service}
-                                        </option>
-                                    ))}
-                                </Select>
-                            </div>
-
-                            <div className="flex gap-2 mt-6">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setShowCreateModal(false)}
-                                    className="flex-1"
-                                >
-                                    Cancel
-                                </Button>
-                                <Button type="submit" className="flex-1">
-                                    Create Label
-                                </Button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
-            )}
+                )}
+            </div>
         </div>
     );
 }

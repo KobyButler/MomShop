@@ -1,66 +1,278 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* Base */
-:root {
-    color-scheme: light;
+/* ─── Base ─────────────────────────────────────────────────────────────────── */
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    @apply bg-[#f8f7ff] text-slate-900 font-sans;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+
+  ::selection {
+    @apply bg-brand-200 text-brand-900;
+  }
+
+  ::-webkit-scrollbar        { width: 6px; height: 6px; }
+  ::-webkit-scrollbar-track  { @apply bg-transparent; }
+  ::-webkit-scrollbar-thumb  { @apply bg-slate-300 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-brand-400; }
+
+  :focus-visible {
+    outline: 2px solid theme('colors.brand.500');
+    outline-offset: 2px;
+  }
 }
 
-/* what: tell UA to render light controls; why: stop forced dark look */
+/* ─── Components ────────────────────────────────────────────────────────────── */
+@layer components {
+  .page-title {
+    @apply text-2xl font-bold text-slate-900 tracking-tight leading-tight;
+  }
 
-html,
-body {
-    height: 100%;
+  .page-subtitle {
+    @apply text-sm text-slate-500 mt-0.5 leading-relaxed;
+  }
+
+  .section-title {
+    @apply text-xs font-semibold text-slate-400 uppercase tracking-widest;
+  }
+
+  .skeleton {
+    @apply rounded-lg;
+    background: linear-gradient(90deg, #e2e8f0 25%, #f1f5f9 50%, #e2e8f0 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.6s infinite;
+  }
+
+  .stat-card {
+    @apply bg-white rounded-2xl p-5 ring-1 ring-black/5 shadow-card
+           transition-all duration-300 hover:shadow-card-hover hover:-translate-y-0.5 cursor-default;
+  }
+
+  .data-table {
+    @apply w-full text-sm;
+  }
+  .data-table thead tr {
+    @apply border-b border-slate-100;
+  }
+  .data-table thead th {
+    @apply px-4 py-3 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider whitespace-nowrap;
+  }
+  .data-table tbody tr {
+    @apply border-b border-slate-50 transition-colors duration-150 hover:bg-violet-50/50;
+  }
+  .data-table tbody tr:last-child {
+    @apply border-0;
+  }
+  .data-table tbody td {
+    @apply px-4 py-3.5 text-slate-700;
+  }
+
+  .field-label {
+    @apply block text-xs font-semibold text-slate-600 mb-1.5;
+  }
+
+  .gradient-text {
+    background: linear-gradient(135deg, #a78bfa 0%, #7c3aed 50%, #4f46e5 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .nav-item {
+    @apply flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium
+           transition-all duration-200 cursor-pointer relative select-none;
+    color: #8888a8;
+  }
+
+  .nav-item:hover {
+    color: #e0e0f0;
+    background: rgba(255,255,255,0.07);
+  }
+
+  .nav-item.active {
+    color: #fff;
+    background: rgba(124,58,237,0.22);
+  }
+
+  .nav-item.active::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 3px;
+    height: 20px;
+    border-radius: 0 4px 4px 0;
+    background: linear-gradient(180deg, #a78bfa, #7c3aed);
+    box-shadow: 0 0 8px rgba(124,58,237,0.6);
+  }
+
+  .btn-shine {
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-shine::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(105deg, transparent 40%, rgba(255,255,255,0.20) 50%, transparent 60%);
+    transform: translateX(-100%);
+    transition: transform 0.55s ease;
+    pointer-events: none;
+  }
+  .btn-shine:hover::after {
+    transform: translateX(100%);
+  }
+
+  .page-enter {
+    animation: fade-up 0.35s cubic-bezier(0.32, 0.72, 0, 1) both;
+  }
+
+  .orb {
+    @apply absolute rounded-full blur-3xl pointer-events-none select-none;
+  }
+
+  .glass {
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    background: rgba(255,255,255,0.72);
+    border: 1px solid rgba(255,255,255,0.5);
+  }
 }
 
-body {
-    @apply bg-bg text-text antialiased;
+/* ─── Utilities ─────────────────────────────────────────────────────────────── */
+@layer utilities {
+  .bg-white-8  { background-color: rgba(255,255,255,0.08); }
+  .bg-white-12 { background-color: rgba(255,255,255,0.12); }
+
+  .scrollbar-none::-webkit-scrollbar { display: none; }
+  .scrollbar-none { -ms-overflow-style: none; }
 }
 
-/* Elements */
-a {
-    @apply underline-offset-4 hover:underline text-accent;
+/* ─── Sidebar-specific classes (avoids inline styles) ───────────────────────── */
+.sidebar-root {
+  background: #08080f;
+  border-right: 1px solid rgba(255,255,255,0.05);
+}
+.sidebar-logo-icon {
+  background: linear-gradient(135deg, #8b5cf6, #7c3aed);
+}
+.sidebar-brand-sub {
+  color: #55557a;
+}
+.sidebar-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.05);
+  margin: 0 16px 12px;
+}
+.sidebar-subnav-rail {
+  border-left: 1px solid rgba(124,58,237,0.25);
+}
+.sidebar-subnav-text {
+  color: #66668a;
+}
+.sidebar-footer {
+  border-top: 1px solid rgba(255,255,255,0.05);
+  padding: 12px;
+}
+.sidebar-user-email {
+  color: #66668a;
+}
+.sidebar-logout-text {
+  color: #66668a;
+}
+.app-bg {
+  background: #f8f7ff;
 }
 
-/* Cards & surfaces */
-.card {
-    @apply bg-card border border-line rounded-2xl shadow-soft;
+/* ─── Login page ────────────────────────────────────────────────────────────── */
+.login-page {
+  background: #08080f;
+}
+.login-orb-1 {
+  position: absolute;
+  top: -120px;
+  left: -100px;
+  width: 500px;
+  height: 500px;
+  border-radius: 9999px;
+  filter: blur(80px);
+  background: radial-gradient(circle, #7c3aed 0%, #4f46e5 60%, transparent 100%);
+  pointer-events: none;
+}
+.login-orb-2 {
+  position: absolute;
+  bottom: -80px;
+  right: -80px;
+  width: 400px;
+  height: 400px;
+  border-radius: 9999px;
+  filter: blur(80px);
+  background: radial-gradient(circle, #a78bfa 0%, #6d28d9 60%, transparent 100%);
+  pointer-events: none;
+}
+.login-card {
+  background: rgba(255,255,255,0.04);
+  border: 1px solid rgba(255,255,255,0.10);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+}
+.login-label {
+  color: #a0a0c0;
+}
+.login-subtitle {
+  color: #66668a;
+}
+.login-input {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid rgba(255,255,255,0.10);
+  color: #ffffff;
+}
+.login-input::placeholder {
+  color: #44445a;
+}
+.login-input:focus {
+  background: rgba(255,255,255,0.08);
+  border-color: rgba(124,58,237,0.6);
+  box-shadow: 0 0 0 3px rgba(124,58,237,0.15);
+}
+.login-btn {
+  background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 50%, #6d28d9 100%);
+  box-shadow: 0 4px 24px rgba(124,58,237,0.40);
+}
+.login-btn:hover:not(:disabled) {
+  box-shadow: 0 6px 32px rgba(124,58,237,0.55);
+}
+.login-error {
+  background: rgba(239,68,68,0.12);
+  border: 1px solid rgba(239,68,68,0.25);
+  color: #fca5a5;
+}
+.login-eye-btn {
+  color: #44445a;
+}
+.login-eye-btn:hover {
+  color: #a0a0c0;
+}
+.login-footer {
+  color: #33334a;
 }
 
-/* Inputs */
-.input {
-    /* why: neutral light fields with a visible focus affordance */
-    @apply bg-white border border-gray-300 rounded-xl px-3 py-2 outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition;
+.shadow-modal {
+  box-shadow: 0 24px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.05);
 }
-
-/* Buttons */
-.btn {
-    @apply inline-flex items-center justify-center rounded-xl px-3 py-2 font-medium transition;
-}
-
-.btn-primary {
-    @apply bg-accent text-white hover:shadow-ring;
-}
-
-.btn-ghost {
-    @apply bg-white border border-gray-300 hover:bg-gray-50;
-}
-
-/* Badges */
-.badge {
-    @apply inline-flex items-center gap-1 rounded-full border border-gray-200 bg-gray-100 px-2 py-0.5 text-xs text-gray-700;
-}
-
-/* Tables */
-.table {
-    @apply w-full border-separate border-spacing-0;
-}
-
-.table thead th {
-    @apply text-left text-gray-600 font-medium border-b border-gray-200 pb-2;
-}
-
-.table tbody td {
-    @apply border-b border-gray-200 py-3 align-middle;
+.shadow-glow {
+  box-shadow: 0 0 24px rgba(124,58,237,0.5);
 }

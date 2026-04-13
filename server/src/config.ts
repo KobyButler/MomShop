@@ -17,6 +17,16 @@ export const config = {
         enable: bool(process.env.SS_ENABLE)
     },
 
+    smtp: {
+        host: process.env.SMTP_HOST ?? '',
+        port: Number(process.env.SMTP_PORT ?? 587),
+        user: process.env.SMTP_USER ?? '',
+        pass: process.env.SMTP_PASS ?? '',
+        from: process.env.SMTP_FROM ?? 'orders@printshoppro.com',
+        adminEmail: process.env.ADMIN_NOTIFY_EMAIL ?? '',
+        enable: bool(process.env.SMTP_ENABLE)
+    },
+
     sanmar: {
         customerNumber: process.env.SANMAR_CUSTOMER_NUMBER ?? '',
         username: process.env.SANMAR_USERNAME ?? '',

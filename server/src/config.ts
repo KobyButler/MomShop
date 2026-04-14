@@ -11,6 +11,12 @@ export const config = {
     corsOrigins: (process.env.CORS_ORIGINS ?? 'http://localhost:3000')
         .split(',').map(s => s.trim()),
 
+    stripe: {
+        secretKey: process.env.STRIPE_SECRET_KEY ?? '',
+        webhookSecret: process.env.STRIPE_WEBHOOK_SECRET ?? '',
+        enable: bool(process.env.STRIPE_ENABLE, true),
+    },
+
     ss: {
         user: process.env.SS_USER ?? '',
         apiKey: process.env.SS_API_KEY ?? '',
@@ -22,7 +28,7 @@ export const config = {
         port: Number(process.env.SMTP_PORT ?? 587),
         user: process.env.SMTP_USER ?? '',
         pass: process.env.SMTP_PASS ?? '',
-        from: process.env.SMTP_FROM ?? 'orders@printshoppro.com',
+        from: process.env.SMTP_FROM ?? 'hello@crossroadscustomapparel.com',
         adminEmail: process.env.ADMIN_NOTIFY_EMAIL ?? '',
         enable: bool(process.env.SMTP_ENABLE)
     },
@@ -32,6 +38,9 @@ export const config = {
         username: process.env.SANMAR_USERNAME ?? '',
         password: process.env.SANMAR_PASSWORD ?? '',
         wsdlUrl: process.env.SANMAR_WSDL_URL ?? '',
+        inventoryWsdlUrl: process.env.SANMAR_INVENTORY_WSDL_URL ?? '',
+        inventoryStageWsdlUrl: process.env.SANMAR_INVENTORY_STAGE_WSDL_URL ?? '',
+        productInfoWsdlUrl: process.env.SANMAR_PRODUCTINFO_WSDL_URL ?? '',
         enable: bool(process.env.SANMAR_ENABLE),
         sftp: {
             host: process.env.SANMAR_SFTP_HOST ?? '',

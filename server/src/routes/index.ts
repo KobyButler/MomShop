@@ -11,6 +11,7 @@ import { router as finance } from './finance.js';
 import { router as customers } from './customers.js';
 import { router as checkouts } from './checkouts.js';
 import { router as analytics } from './analytics.js';
+import { router as payments } from './payments.js';
 
 export const router = Router();
 
@@ -31,3 +32,6 @@ router.use('/analytics', requireAuth, analytics);
 
 // Shops: GET /:slug is public (storefront); list/create/update are protected inside shops.ts
 router.use('/shops', shops);
+
+// Payments: create-intent is public (storefront checkout); webhook is handled in index.ts with raw body
+router.use('/payments', payments);

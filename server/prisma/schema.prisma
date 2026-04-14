@@ -66,27 +66,30 @@ model Customer {
 }
 
 model Order {
-  id                  String               @id @default(cuid())
-  shopId              String?
-  shop                Shop?                @relation(fields: [shopId], references: [id])
-  customerId          String?
-  customer            Customer?            @relation(fields: [customerId], references: [id])
-  status              String               @default("UNFULFILLED") // UNFULFILLED|FULFILLED|CANCELLED|DRAFT
-  customerName        String
-  customerEmail       String
-  shipAddress1        String
-  shipAddress2        String?
-  shipCity            String
-  shipState           String
-  shipZip             String
-  residential         Boolean              @default(true)
-  totalCents          Int                  @default(0)
-  createdAt           DateTime             @default(now())
-  items               OrderItem[]
-  vendorOrders        VendorOrder[]
-  discountCodeId      String?
-  discountCode        DiscountCode?        @relation(fields: [discountCodeId], references: [id])
-  financeTransactions FinanceTransaction[]
+  id                    String               @id @default(cuid())
+  shopId                String?
+  shop                  Shop?                @relation(fields: [shopId], references: [id])
+  customerId            String?
+  customer              Customer?            @relation(fields: [customerId], references: [id])
+  status                String               @default("UNFULFILLED") // UNFULFILLED|FULFILLED|CANCELLED|DRAFT
+  paymentStatus         String               @default("UNPAID")      // UNPAID|PAID|OFFLINE_PENDING
+  paymentMethod         String?                                       // stripe|cash|check
+  stripePaymentIntentId String?
+  customerName          String
+  customerEmail         String
+  shipAddress1          String
+  shipAddress2          String?
+  shipCity              String
+  shipState             String
+  shipZip               String
+  residential           Boolean              @default(true)
+  totalCents            Int                  @default(0)
+  createdAt             DateTime             @default(now())
+  items                 OrderItem[]
+  vendorOrders          VendorOrder[]
+  discountCodeId        String?
+  discountCode          DiscountCode?        @relation(fields: [discountCodeId], references: [id])
+  financeTransactions   FinanceTransaction[]
 }
 
 model OrderItem {

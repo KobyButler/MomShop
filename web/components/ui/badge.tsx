@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 export type BadgeVariant =
     | "default" | "success" | "warning" | "danger" | "info"
-    | "purple" | "pink" | "orange" | "teal";
+    | "purple" | "pink" | "orange" | "teal" | "neutral";
 
 const styles: Record<BadgeVariant, string> = {
     default: "bg-slate-100  text-slate-600  ring-slate-200/60",
@@ -15,6 +15,7 @@ const styles: Record<BadgeVariant, string> = {
     pink:    "bg-pink-50    text-pink-700    ring-pink-200/60",
     orange:  "bg-orange-50  text-orange-700  ring-orange-200/60",
     teal:    "bg-teal-50    text-teal-700    ring-teal-200/60",
+    neutral: "bg-slate-100  text-slate-500  ring-slate-200/60",
 };
 
 const dots: Record<BadgeVariant, string> = {
@@ -27,19 +28,21 @@ const dots: Record<BadgeVariant, string> = {
     pink:    "bg-pink-500",
     orange:  "bg-orange-500",
     teal:    "bg-teal-500",
+    neutral: "bg-slate-400",
 };
 
 interface BadgeProps extends React.HTMLAttributes<HTMLSpanElement> {
     variant?: BadgeVariant;
     dot?: boolean;
+    size?: "sm" | "md";
 }
 
-export function Badge({ variant = "default", dot = false, className, children, ...props }: BadgeProps) {
+export function Badge({ variant = "default", dot = false, size = "md", className, children, ...props }: BadgeProps) {
     return (
         <span
             className={cn(
-                "inline-flex items-center gap-1.5 px-2.5 py-0.5",
-                "text-xs font-semibold rounded-full ring-1",
+                "inline-flex items-center gap-1.5 rounded-full ring-1 font-semibold",
+                size === "sm" ? "px-2 py-px text-[11px]" : "px-2.5 py-0.5 text-xs",
                 styles[variant],
                 className
             )}

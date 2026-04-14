@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import { ToastProvider } from "@/components/ui/toast";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState, useEffect } from "react";
+import Image from "next/image";
 
 /* ─── Nav definition ──────────────────────────────────────────────────────── */
 type NavChild = { href: string; label: string };
@@ -78,16 +79,16 @@ function Sidebar() {
     return (
         <aside className="sidebar-root w-[220px] shrink-0 flex flex-col sticky top-0 h-screen overflow-y-auto scrollbar-none">
             {/* Brand */}
-            <div className="px-4 py-5 flex items-center gap-3">
-                <div className="sidebar-logo-icon w-8 h-8 rounded-xl flex items-center justify-center shrink-0">
-                    <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                        <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm4.707 3.707a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L7.414 9H13a1 1 0 100-2H7.414l2.293-2.293z" clipRule="evenodd" />
-                    </svg>
-                </div>
-                <div>
-                    <div className="text-sm font-bold text-white leading-none">PrintShop Pro</div>
-                    <div className="sidebar-brand-sub text-[10px] mt-0.5">Admin Dashboard</div>
-                </div>
+            <div className="px-4 py-4 flex flex-col items-start gap-1">
+                <Image
+                    src="/logo.png"
+                    alt="Crossroads Custom Apparel"
+                    width={140}
+                    height={56}
+                    className="object-contain"
+                    priority
+                />
+                <div className="sidebar-brand-sub text-[10px]">Admin Dashboard</div>
             </div>
 
             <div className="sidebar-divider" />

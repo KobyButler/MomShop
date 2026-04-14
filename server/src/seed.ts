@@ -3,12 +3,12 @@ import { prisma } from './prisma.js';
 
 async function main() {
     // --- Admin user ---
-    const adminEmail = process.env.ADMIN_EMAIL ?? 'admin@printshoppro.com';
+    const adminEmail = process.env.ADMIN_EMAIL ?? 'hello@crossroadscustomapparel.com';
     const adminPassword = process.env.ADMIN_PASSWORD ?? 'changeme123';
     const passwordHash = await bcrypt.hash(adminPassword, 12);
     await prisma.user.upsert({
         where: { email: adminEmail },
-        update: {},
+        update: { passwordHash },
         create: { email: adminEmail, passwordHash, role: 'admin' }
     });
     console.log(`Admin user: ${adminEmail} / ${adminPassword}`);

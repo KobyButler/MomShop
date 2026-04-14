@@ -1,5 +1,17 @@
 // Lightweight fetch helper used across admin + shop
 
+/**
+ * Resolve a product image URL.
+ * - Absolute URLs (Shopify CDN, https://...) are returned as-is.
+ * - Relative paths (/uploads/...) are prefixed with the API server base.
+ */
+export function imgUrl(url: string): string {
+    if (!url) return "";
+    if (/^https?:\/\//.test(url)) return url;
+    const base = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api").replace(/\/api$/, "");
+    return `${base}${url}`;
+}
+
 function getToken(): string | null {
     if (typeof window === "undefined") return null;
     return localStorage.getItem("auth_token");

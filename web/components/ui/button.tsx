@@ -6,11 +6,12 @@ import { motion, HTMLMotionProps } from "framer-motion";
 export type ButtonVariant = "primary" | "secondary" | "outline" | "ghost" | "danger" | "success";
 export type ButtonSize = "xs" | "sm" | "md" | "lg";
 
-interface ButtonProps extends Omit<HTMLMotionProps<"button">, "size"> {
+interface ButtonProps extends Omit<HTMLMotionProps<"button">, "size" | "children"> {
     variant?: ButtonVariant;
     size?: ButtonSize;
     loading?: boolean;
     icon?: React.ReactNode;
+    children?: React.ReactNode;
 }
 
 const variants: Record<ButtonVariant, string> = {

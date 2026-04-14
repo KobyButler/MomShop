@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api } from "@/app/lib/api";
+import { api, imgUrl } from "@/app/lib/api";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -61,7 +61,6 @@ function ImageUploader({ productId, existingImages, onUploaded }: { productId:st
     const { toast } = useToast();
     const [uploading, setUploading] = useState(false);
     const base = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api";
-    const serverBase = base.replace(/\/api$/, "");
 
     async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0];
@@ -87,7 +86,7 @@ function ImageUploader({ productId, existingImages, onUploaded }: { productId:st
             <div className="flex flex-wrap gap-2 mb-3">
                 {existingImages.map((url, i) => (
                     <div key={i} className="relative group">
-                        <img src={`${serverBase}${url}`} alt={`Product ${i+1}`}
+                        <img src={imgUrl(url)} alt={`Product ${i+1}`}
                             className="w-16 h-16 object-cover rounded-xl border border-slate-200 ring-2 ring-transparent group-hover:ring-brand-300 transition-all" />
                     </div>
                 ))}
@@ -283,7 +282,7 @@ export default function ProductsPage() {
                                                 <td>
                                                     <div className="flex items-center gap-3">
                                                         {p.imagesJson && JSON.parse(p.imagesJson)[0] ? (
-                                                            <img src={`${(process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api").replace(/\/api$/,"")}${JSON.parse(p.imagesJson)[0]}`}
+                                                            <img src={imgUrl(JSON.parse(p.imagesJson)[0])}
                                                                 alt={p.name} className="w-8 h-8 rounded-lg object-cover shrink-0 ring-1 ring-black/5" />
                                                         ) : (
                                                             <div className="w-8 h-8 rounded-lg bg-brand-50 flex items-center justify-center shrink-0">

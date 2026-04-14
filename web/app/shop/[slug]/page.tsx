@@ -1,7 +1,11 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { imgUrl } from "@/app/lib/api";
+import { loadStripe } from "@stripe/stripe-js";
+import { Elements, PaymentElement, useStripe, useElements } from "@stripe/react-stripe-js";
 
+// ─── Types ────────────────────────────────────────────────────────────────────
 type Product = {
     id:string; name:string; sku:string; brand?:string;
     priceCents:number; description?:string; imagesJson?:string;
@@ -9,10 +13,18 @@ type Product = {
 };
 type CartItem = { productId:string; name:string; priceCents:number; quantity:number; size?:string; color?:string };
 type Shop = { id:string; name:string; collection:{ name:string; products:Product[] } };
+type PaymentMethod = "stripe" | "pickup" | "";
 
+// ─── Stripe instance (loaded once) ───────────────────────────────────────────
+const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? "");
+
+// ─── Helpers ─────────────────────────────────────────────────────────────────
 async function publicFetch(path: string, init?: RequestInit) {
     const base = process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api";
-    const res = await fetch(`${base}${path}`, { headers:{ "Content-Type":"application/json", ...(init?.headers ?? {}) }, ...init });
+    const res = await fetch(`${base}${path}`, {
+        headers: { "Content-Type": "application/json", ...(init?.headers ?? {}) },
+        ...init
+    });
     if (!res.ok) {
         let msg = `HTTP ${res.status}`;
         try { const j = await res.json(); msg += j?.error ? `: ${j.error}` : ""; } catch {}
@@ -24,22 +36,89 @@ async function publicFetch(path: string, init?: RequestInit) {
 const fmt = (cents: number) =>
     new Intl.NumberFormat("en-US", { style:"currency", currency:"USD" }).format(cents / 100);
 
-const serverBase = (process.env.NEXT_PUBLIC_API_BASE ?? "http://localhost:4000/api").replace(/\/api$/, "");
+// ─── Stripe Payment Form (rendered inside <Elements>) ────────────────────────
+function StripePaymentForm({
+    orderId, totalCents, onSuccess, onBack
+}: {
+    orderId: string; totalCents: number;
+    onSuccess: () => void; onBack: () => void;
+}) {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [processing, setProcessing] = useState(false);
+    const [error, setError] = useState("");
 
+    async function handlePay(e: React.FormEvent) {
+        e.preventDefault();
+        if (!stripe || !elements) return;
+        setProcessing(true);
+        setError("");
+        const { error: stripeError } = await stripe.confirmPayment({
+            elements,
+            redirect: "if_required"   // only redirects for bank-redirect methods; cards confirm inline
+        });
+        if (stripeError) {
+            setError(stripeError.message ?? "Payment failed. Please try again.");
+            setProcessing(false);
+        } else {
+            onSuccess();
+        }
+    }
+
+    return (
+        <form onSubmit={handlePay} className="space-y-4">
+            <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-5">
+                <h2 className="text-sm font-bold text-slate-900 mb-4">Card / digital wallet</h2>
+                {/* Stripe Payment Element renders card, Apple Pay, Google Pay, etc. */}
+                <PaymentElement options={{ layout: "tabs" }} />
+            </div>
+
+            {error && (
+                <motion.div initial={{ opacity:0, y:-4 }} animate={{ opacity:1, y:0 }}
+                    className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-medium text-red-700">
+                    {error}
+                </motion.div>
+            )}
+
+            <div className="flex gap-3">
+                <button type="button" onClick={onBack}
+                    className="flex-1 py-3 rounded-xl text-sm font-medium text-slate-600 bg-white ring-1 ring-black/8 hover:bg-slate-50 transition-colors">
+                    ← Back
+                </button>
+                <motion.button type="submit" disabled={!stripe || processing} whileHover={{ y:-1 }} whileTap={{ scale:0.98 }}
+                    className="btn-shine flex-[2] text-white font-semibold py-3 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60"
+                    style={{ background:"linear-gradient(135deg,#8b5cf6 0%,#7c3aed 100%)", boxShadow:"0 6px 24px rgba(124,58,237,0.4)" }}>
+                    {processing ? (
+                        <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Processing…</>
+                    ) : (
+                        <>Pay {fmt(totalCents)}</>
+                    )}
+                </motion.button>
+            </div>
+        </form>
+    );
+}
+
+// ─── Main Page ────────────────────────────────────────────────────────────────
 export default function ShopPage({ params }: { params: { slug: string } }) {
     const { slug } = params;
     const [shop, setShop]             = useState<Shop | null>(null);
     const [cart, setCart]             = useState<CartItem[]>([]);
     const [selections, setSelections] = useState<Record<string, { size:string; color:string }>>({});
-    const [step, setStep]             = useState<"browse"|"checkout"|"done">("browse");
+    const [step, setStep]             = useState<"browse"|"checkout"|"payment"|"done">("browse");
     const [placedOrderId, setPlacedOrderId] = useState("");
     const [discountCode, setDiscountCode]   = useState("");
     const [discountApplied, setDiscountApplied] = useState(false);
-    const [form, setForm] = useState({ customerName:"", customerEmail:"", shipAddress1:"", shipAddress2:"", shipCity:"", shipState:"", shipZip:"" });
+    const [form, setForm] = useState({
+        customerName:"", customerEmail:"",
+        shipAddress1:"", shipAddress2:"", shipCity:"", shipState:"", shipZip:""
+    });
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("");
+    const [stripeClientSecret, setStripeClientSecret] = useState<string | null>(null);
+    const [stripeOrderId, setStripeOrderId] = useState("");
     const [placing, setPlacing] = useState(false);
     const [error, setError]     = useState("");
     const [notFound, setNotFound] = useState(false);
-    const [showCart, setShowCart] = useState(false);
 
     useEffect(() => {
         publicFetch(`/shops/${slug}`).then(setShop).catch(() => setNotFound(true));
@@ -47,13 +126,12 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
 
     const products: Product[] = shop?.collection?.products ?? [];
     const subtotalCents = useMemo(() => cart.reduce((a,c) => a + c.priceCents*c.quantity, 0), [cart]);
-    const cartCount = cart.reduce((a,c) => a + c.quantity, 0);
+    const cartCount     = cart.reduce((a,c) => a + c.quantity, 0);
 
     function getSelection(productId: string) { return selections[productId] ?? { size:"", color:"" }; }
     function setSelection(productId: string, key:"size"|"color", value:string) {
         setSelections(p => ({ ...p, [productId]:{ ...getSelection(productId), [key]:value } }));
     }
-
     function addToCart(product: Product) {
         const sizes: string[] = product.sizesJson ? JSON.parse(product.sizesJson) : [];
         const colors: string[] = product.colorsJson ? JSON.parse(product.colorsJson) : [];
@@ -67,22 +145,57 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
             return [...prev, { productId:product.id, name:product.name, priceCents:product.priceCents, quantity:1, size:sel.size||undefined, color:sel.color||undefined }];
         });
     }
-
     function updateQty(idx: number, qty: number) {
         setCart(p => qty < 1 ? p.filter((_,i) => i!==idx) : p.map((x,i) => i===idx ? { ...x, quantity:qty } : x));
     }
 
-    async function placeOrder(e: React.FormEvent) {
-        e.preventDefault(); setPlacing(true); setError("");
-        try {
-            const order = await publicFetch("/orders", { method:"POST", body:JSON.stringify({
-                shopSlug:slug, ...form,
-                items:cart.map(c => ({ productId:c.productId, quantity:c.quantity, size:c.size, color:c.color })),
-                discountCode:discountCode||undefined
-            })});
-            setPlacedOrderId(order.id); setStep("done");
-        } catch (err: any) { setError(err.message || "Failed to place order. Please try again."); }
-        finally { setPlacing(false); }
+    // Continue from checkout form → payment step
+    async function handleContinueToPayment(e: React.FormEvent) {
+        e.preventDefault();
+        if (!paymentMethod) { setError("Please select a payment method."); return; }
+        setError("");
+
+        if (paymentMethod === "stripe") {
+            // Create a Stripe PaymentIntent (and a pending order) on the server
+            setPlacing(true);
+            try {
+                const { clientSecret, orderId } = await publicFetch("/payments/create-intent", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        shopSlug: slug, ...form,
+                        items: cart.map(c => ({ productId:c.productId, quantity:c.quantity, size:c.size, color:c.color })),
+                        discountCode: discountCode || undefined
+                    })
+                });
+                setStripeClientSecret(clientSecret);
+                setStripeOrderId(orderId);
+                setStep("payment");
+            } catch (err: any) {
+                setError(err.message || "Could not initialize payment. Please try again.");
+            } finally {
+                setPlacing(false);
+            }
+        } else {
+            // Cash or check — place order immediately
+            setPlacing(true);
+            try {
+                const order = await publicFetch("/orders", {
+                    method: "POST",
+                    body: JSON.stringify({
+                        shopSlug: slug, ...form,
+                        items: cart.map(c => ({ productId:c.productId, quantity:c.quantity, size:c.size, color:c.color })),
+                        discountCode: discountCode || undefined,
+                        paymentMethod
+                    })
+                });
+                setPlacedOrderId(order.id);
+                setStep("done");
+            } catch (err: any) {
+                setError(err.message || "Failed to place order. Please try again.");
+            } finally {
+                setPlacing(false);
+            }
+        }
     }
 
     /* ── Loading ── */
@@ -114,22 +227,44 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
 
     /* ── Done ── */
     if (step === "done") {
+        const isOffline = paymentMethod === "pickup";
         return (
             <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
                 <motion.div initial={{ opacity:0, scale:0.93, y:16 }} animate={{ opacity:1, scale:1, y:0 }}
                     transition={{ duration:0.4, ease:[0.32,0.72,0,1] }}
-                    className="bg-white rounded-3xl shadow-xl ring-1 ring-black/5 p-10 max-w-md w-full text-center"
-                >
-                    <motion.div initial={{ scale:0 }} animate={{ scale:1 }} transition={{ delay:0.2, type:"spring", stiffness:260, damping:20 }}
-                        className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-5">
-                        <svg className="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
-                        </svg>
+                    className="bg-white rounded-3xl shadow-xl ring-1 ring-black/5 p-10 max-w-md w-full text-center">
+                    <motion.div initial={{ scale:0 }} animate={{ scale:1 }}
+                        transition={{ delay:0.2, type:"spring", stiffness:260, damping:20 }}
+                        className={`w-16 h-16 ${isOffline ? "bg-amber-100" : "bg-emerald-100"} rounded-full flex items-center justify-center mx-auto mb-5`}>
+                        {isOffline ? (
+                            <svg className="w-8 h-8 text-amber-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"/>
+                            </svg>
+                        ) : (
+                            <svg className="w-8 h-8 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        )}
                     </motion.div>
-                    <h1 className="text-2xl font-bold text-slate-900 mb-2">Order placed! 🎉</h1>
-                    <p className="text-sm text-slate-500 mb-5">Thanks, <strong className="text-slate-700">{form.customerName}</strong>! Your order has been received and will be processed shortly.</p>
+                    <h1 className="text-2xl font-bold text-slate-900 mb-2">
+                        {isOffline ? "Order confirmed!" : "Payment received! 🎉"}
+                    </h1>
+                    <p className="text-sm text-slate-500 mb-5">
+                        Thanks, <strong className="text-slate-700">{form.customerName}</strong>!{" "}
+                        {isOffline
+                            ? `Your order is confirmed. Please bring cash or a check for ${fmt(subtotalCents)} when you pick it up.`
+                            : "Your payment was successful and your order is being processed."}
+                    </p>
+                    {isOffline && (
+                        <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-800 mb-5 text-left">
+                            <p className="font-semibold mb-1">Payment due at pickup</p>
+                            <p className="text-xs text-amber-700">Amount: <strong>{fmt(subtotalCents)}</strong> · Method: <strong>Cash or Check</strong></p>
+                        </div>
+                    )}
                     <div className="bg-slate-50 rounded-xl px-4 py-3 text-sm text-slate-600 mb-5">
-                        Order ID: <code className="font-mono font-bold text-slate-800">#{placedOrderId.slice(-8).toUpperCase()}</code>
+                        Order ID: <code className="font-mono font-bold text-slate-800">
+                            #{(placedOrderId || stripeOrderId).slice(-8).toUpperCase()}
+                        </code>
                     </div>
                     <p className="text-xs text-slate-400">A confirmation will be sent to {form.customerEmail}</p>
                 </motion.div>
@@ -156,18 +291,19 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
-                        {step === "checkout" && (
-                            <button type="button" onClick={() => setStep("browse")} className="text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors flex items-center gap-1">
+                        {(step === "checkout" || step === "payment") && (
+                            <button type="button"
+                                onClick={() => step === "payment" ? setStep("checkout") : setStep("browse")}
+                                className="text-sm font-medium text-slate-500 hover:text-slate-700 transition-colors flex items-center gap-1">
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                                Products
+                                {step === "payment" ? "Edit order" : "Products"}
                             </button>
                         )}
                         {step === "browse" && cart.length > 0 && (
                             <motion.button type="button" whileHover={{ y:-1 }} whileTap={{ scale:0.96 }}
                                 onClick={() => setStep("checkout")}
                                 className="btn-shine flex items-center gap-2 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-all duration-200"
-                                style={{ background:"linear-gradient(135deg,#8b5cf6 0%,#7c3aed 100%)", boxShadow:"0 4px 16px rgba(124,58,237,0.35)" }}
-                            >
+                                style={{ background:"linear-gradient(135deg,#8b5cf6 0%,#7c3aed 100%)", boxShadow:"0 4px 16px rgba(124,58,237,0.35)" }}>
                                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z"/></svg>
                                 Checkout
                                 <motion.span key={cartCount} initial={{ scale:1.4 }} animate={{ scale:1 }}
@@ -181,7 +317,7 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
             </header>
 
             <main className="max-w-5xl mx-auto px-4 py-8">
-                {/* Browse */}
+                {/* ── Browse ── */}
                 {step === "browse" && (
                     <motion.div initial={{ opacity:0 }} animate={{ opacity:1 }} transition={{ duration:0.3 }}>
                         {products.length === 0 ? (
@@ -196,24 +332,20 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                     const sel = getSelection(p.id);
                                     const totalInCart = cart.filter(c => c.productId===p.id).reduce((a,c) => a+c.quantity, 0);
                                     const imgs: string[] = p.imagesJson ? JSON.parse(p.imagesJson) : [];
-
                                     return (
                                         <motion.div key={p.id}
                                             initial={{ opacity:0, y:12 }} animate={{ opacity:1, y:0 }}
                                             transition={{ delay:idx*0.04, duration:0.3, ease:[0.32,0.72,0,1] }}
-                                            className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300 overflow-hidden flex flex-col"
-                                        >
-                                            {/* Image */}
+                                            className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card hover:shadow-card-hover hover:-translate-y-0.5 transition-all duration-300 overflow-hidden flex flex-col">
                                             <div className="aspect-square overflow-hidden shrink-0">
                                                 {imgs.length > 0 ? (
-                                                    <img src={`${serverBase}${imgs[0]}`} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
+                                                    <img src={imgUrl(imgs[0])} alt={p.name} className="w-full h-full object-cover hover:scale-105 transition-transform duration-500" />
                                                 ) : (
                                                     <div className="w-full h-full bg-gradient-to-br from-brand-50 to-violet-50 flex items-center justify-center">
                                                         <svg className="w-12 h-12 text-brand-200" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
                                                     </div>
                                                 )}
                                             </div>
-
                                             <div className="p-4 flex flex-col flex-1 gap-3">
                                                 <div>
                                                     <p className="text-sm font-bold text-slate-900">{p.name}</p>
@@ -221,7 +353,6 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                                     {p.description && <p className="text-xs text-slate-500 mt-1 line-clamp-2">{p.description}</p>}
                                                     <p className="text-base font-bold text-brand-600 mt-2">{fmt(p.priceCents)}</p>
                                                 </div>
-
                                                 {(sizes.length > 0 || colors.length > 0) && (
                                                     <div className="space-y-2">
                                                         {sizes.length > 0 && (
@@ -254,7 +385,6 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                                         )}
                                                     </div>
                                                 )}
-
                                                 <div className="mt-auto flex items-center gap-2">
                                                     <AnimatePresence>
                                                         {totalInCart > 0 && (
@@ -279,52 +409,94 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                     </motion.div>
                 )}
 
-                {/* Checkout */}
+                {/* ── Checkout (contact + shipping + payment method selection) ── */}
                 {step === "checkout" && (
                     <motion.div initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} transition={{ duration:0.3, ease:[0.32,0.72,0,1] }}
                         className="grid lg:grid-cols-5 gap-6">
                         <div className="lg:col-span-3">
-                            <form onSubmit={placeOrder} className="space-y-4">
+                            <form onSubmit={handleContinueToPayment} className="space-y-4">
                                 {/* Contact */}
                                 <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-5 space-y-4">
                                     <h2 className="text-sm font-bold text-slate-900">Contact information</h2>
                                     <div className="grid grid-cols-2 gap-3">
                                         <div>
                                             <label className="field-label" htmlFor="cust-name">Full name</label>
-                                            <input id="cust-name" required className={inputCls} placeholder="Jane Smith" value={form.customerName} onChange={e => setForm(p => ({ ...p, customerName:e.target.value }))} />
+                                            <input id="cust-name" required className={inputCls} placeholder="Jane Smith"
+                                                value={form.customerName} onChange={e => setForm(p => ({ ...p, customerName:e.target.value }))} />
                                         </div>
                                         <div>
                                             <label className="field-label" htmlFor="cust-email">Email</label>
-                                            <input id="cust-email" required type="email" className={inputCls} placeholder="jane@example.com" value={form.customerEmail} onChange={e => setForm(p => ({ ...p, customerEmail:e.target.value }))} />
+                                            <input id="cust-email" required type="email" className={inputCls} placeholder="jane@example.com"
+                                                value={form.customerEmail} onChange={e => setForm(p => ({ ...p, customerEmail:e.target.value }))} />
                                         </div>
                                     </div>
                                 </div>
+
                                 {/* Shipping */}
                                 <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-5 space-y-4">
                                     <h2 className="text-sm font-bold text-slate-900">Shipping address</h2>
                                     <div>
                                         <label className="field-label" htmlFor="addr1">Street address</label>
-                                        <input id="addr1" required className={inputCls} placeholder="123 Main St" value={form.shipAddress1} onChange={e => setForm(p => ({ ...p, shipAddress1:e.target.value }))} />
+                                        <input id="addr1" required className={inputCls} placeholder="123 Main St"
+                                            value={form.shipAddress1} onChange={e => setForm(p => ({ ...p, shipAddress1:e.target.value }))} />
                                     </div>
                                     <div>
                                         <label className="field-label" htmlFor="addr2">Apartment, suite, etc. (optional)</label>
-                                        <input id="addr2" className={inputCls} placeholder="Apt 4B" value={form.shipAddress2} onChange={e => setForm(p => ({ ...p, shipAddress2:e.target.value }))} />
+                                        <input id="addr2" className={inputCls} placeholder="Apt 4B"
+                                            value={form.shipAddress2} onChange={e => setForm(p => ({ ...p, shipAddress2:e.target.value }))} />
                                     </div>
                                     <div className="grid grid-cols-3 gap-3">
                                         <div className="col-span-1">
                                             <label className="field-label" htmlFor="city">City</label>
-                                            <input id="city" required className={inputCls} placeholder="Springfield" value={form.shipCity} onChange={e => setForm(p => ({ ...p, shipCity:e.target.value }))} />
+                                            <input id="city" required className={inputCls} placeholder="Springfield"
+                                                value={form.shipCity} onChange={e => setForm(p => ({ ...p, shipCity:e.target.value }))} />
                                         </div>
                                         <div>
                                             <label className="field-label" htmlFor="state">State</label>
-                                            <input id="state" required maxLength={2} className={inputCls} placeholder="IL" value={form.shipState} onChange={e => setForm(p => ({ ...p, shipState:e.target.value.toUpperCase() }))} />
+                                            <input id="state" required maxLength={2} className={inputCls} placeholder="IL"
+                                                value={form.shipState} onChange={e => setForm(p => ({ ...p, shipState:e.target.value.toUpperCase() }))} />
                                         </div>
                                         <div>
                                             <label className="field-label" htmlFor="zip">ZIP</label>
-                                            <input id="zip" required className={inputCls} placeholder="62701" value={form.shipZip} onChange={e => setForm(p => ({ ...p, shipZip:e.target.value }))} />
+                                            <input id="zip" required className={inputCls} placeholder="62701"
+                                                value={form.shipZip} onChange={e => setForm(p => ({ ...p, shipZip:e.target.value }))} />
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* Payment Method Selection */}
+                                <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-5">
+                                    <h2 className="text-sm font-bold text-slate-900 mb-3">Payment method</h2>
+                                    <div className="space-y-2">
+                                        {/* Online payment */}
+                                        <label className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-150 ${paymentMethod === "stripe" ? "border-brand-500 bg-brand-50" : "border-slate-200 hover:border-slate-300"}`}>
+                                            <input type="radio" name="paymentMethod" value="stripe" className="accent-brand-600"
+                                                checked={paymentMethod === "stripe"} onChange={() => setPaymentMethod("stripe")} />
+                                            <div className="flex-1">
+                                                <p className="text-sm font-semibold text-slate-900">Card / Apple Pay / Google Pay</p>
+                                                <p className="text-xs text-slate-400 mt-0.5">Pay securely online with card or digital wallet</p>
+                                            </div>
+                                            <div className="flex gap-1">
+                                                {/* Card brand icons */}
+                                                <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">VISA</span>
+                                                <span className="text-xs bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-mono font-bold">MC</span>
+                                                <span className="text-xs bg-slate-700 text-white px-1.5 py-0.5 rounded font-bold">Pay</span>
+                                            </div>
+                                        </label>
+
+                                        {/* Pay at Pickup */}
+                                        <label className={`flex items-center gap-3 p-3.5 rounded-xl border-2 cursor-pointer transition-all duration-150 ${paymentMethod === "pickup" ? "border-emerald-500 bg-emerald-50" : "border-slate-200 hover:border-slate-300"}`}>
+                                            <input type="radio" name="paymentMethod" value="pickup" className="accent-emerald-600"
+                                                checked={paymentMethod === "pickup"} onChange={() => setPaymentMethod("pickup")} />
+                                            <div className="flex-1">
+                                                <p className="text-sm font-semibold text-slate-900">Pay at pickup</p>
+                                                <p className="text-xs text-slate-400 mt-0.5">Pay with cash or check when you collect your order</p>
+                                            </div>
+                                            <span className="text-lg">💵</span>
+                                        </label>
+                                    </div>
+                                </div>
+
                                 {/* Discount */}
                                 <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-5">
                                     <h2 className="text-sm font-bold text-slate-900 mb-3">Discount code</h2>
@@ -337,22 +509,28 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                         </button>
                                     </div>
                                     {discountApplied && discountCode && (
-                                        <p className="text-xs text-emerald-600 mt-2 font-medium">✓ Code will be applied at checkout.</p>
+                                        <p className="text-xs text-emerald-600 mt-2 font-medium">✓ Code will be applied.</p>
                                     )}
                                 </div>
+
                                 {error && (
                                     <motion.div initial={{ opacity:0, y:-4 }} animate={{ opacity:1, y:0 }}
                                         className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm font-medium text-red-700">
                                         {error}
                                     </motion.div>
                                 )}
-                                <motion.button type="submit" disabled={placing} whileHover={{ y:-1 }} whileTap={{ scale:0.98 }}
+
+                                <motion.button type="submit" disabled={placing || !paymentMethod} whileHover={{ y:-1 }} whileTap={{ scale:0.98 }}
                                     className="btn-shine w-full text-white font-semibold py-3.5 rounded-xl transition-all duration-200 flex items-center justify-center gap-2 disabled:opacity-60"
                                     style={{ background:"linear-gradient(135deg,#8b5cf6 0%,#7c3aed 100%)", boxShadow:"0 6px 24px rgba(124,58,237,0.4)" }}>
                                     {placing ? (
-                                        <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Placing order…</>
-                                    ) : (
+                                        <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"/>Working…</>
+                                    ) : paymentMethod === "stripe" ? (
+                                        <>Continue to payment · {fmt(subtotalCents)}</>
+                                    ) : paymentMethod ? (
                                         <>Place order · {fmt(subtotalCents)}</>
+                                    ) : (
+                                        <>Select a payment method</>
                                     )}
                                 </motion.button>
                             </form>
@@ -388,6 +566,49 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                         <span className="tabular-nums">{fmt(subtotalCents)}</span>
                                     </div>
                                     <p className="text-xs text-slate-400 mt-1">Shipping calculated at fulfillment</p>
+                                </div>
+                            </div>
+                        </div>
+                    </motion.div>
+                )}
+
+                {/* ── Payment (Stripe card/wallet form) ── */}
+                {step === "payment" && stripeClientSecret && (
+                    <motion.div initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} transition={{ duration:0.3, ease:[0.32,0.72,0,1] }}
+                        className="grid lg:grid-cols-5 gap-6">
+                        <div className="lg:col-span-3">
+                            <Elements stripe={stripePromise} options={{ clientSecret: stripeClientSecret, appearance: { theme: "stripe" } }}>
+                                <StripePaymentForm
+                                    orderId={stripeOrderId}
+                                    totalCents={subtotalCents}
+                                    onSuccess={() => { setPlacedOrderId(stripeOrderId); setStep("done"); }}
+                                    onBack={() => setStep("checkout")}
+                                />
+                            </Elements>
+                        </div>
+                        {/* Order Summary (same sidebar) */}
+                        <div className="lg:col-span-2">
+                            <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-5 sticky top-20">
+                                <h2 className="text-sm font-bold text-slate-900 mb-4">
+                                    Order summary <span className="font-normal text-slate-400">({cartCount} item{cartCount!==1?"s":""})</span>
+                                </h2>
+                                <div className="space-y-2 mb-4 max-h-60 overflow-y-auto">
+                                    {cart.map((item,i) => (
+                                        <div key={i} className="flex items-start gap-2">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-semibold text-slate-800 truncate">{item.name}</p>
+                                                {(item.size||item.color) && <p className="text-xs text-slate-400">{[item.size,item.color].filter(Boolean).join(" / ")}</p>}
+                                                <p className="text-xs text-slate-400">× {item.quantity}</p>
+                                            </div>
+                                            <span className="text-sm font-bold text-slate-900 tabular-nums shrink-0">{fmt(item.priceCents*item.quantity)}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                                <div className="border-t border-slate-100 pt-4">
+                                    <div className="flex justify-between text-base font-bold text-slate-900">
+                                        <span>Total</span>
+                                        <span className="tabular-nums">{fmt(subtotalCents)}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>

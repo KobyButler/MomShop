@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { motion } from "framer-motion";
+import Image from "next/image";
 
 export default function LoginPage() {
     const router = useRouter();
@@ -60,13 +61,18 @@ export default function LoginPage() {
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             transition={{ delay: 0.1, duration: 0.35, ease: [0.32, 0.72, 0, 1] }}
-                            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4 shadow-glow sidebar-logo-icon"
+                            className="mb-4"
                         >
-                            <svg className="w-7 h-7 text-white" viewBox="0 0 20 20" fill="currentColor">
-                                <path fillRule="evenodd" d="M5 2a2 2 0 00-2 2v14l3.5-2 3.5 2 3.5-2 3.5 2V4a2 2 0 00-2-2H5zm4.707 3.707a1 1 0 00-1.414-1.414l-3 3a1 1 0 000 1.414l3 3a1 1 0 001.414-1.414L7.414 9H13a1 1 0 100-2H7.414l2.293-2.293z" clipRule="evenodd" />
-                            </svg>
+                            <Image
+                                src="/logo.png"
+                                alt="Crossroads Custom Apparel"
+                                width={160}
+                                height={80}
+                                className="object-contain"
+                                priority
+                            />
                         </motion.div>
-                        <h1 className="text-2xl font-bold text-white">PrintShop Pro</h1>
+                        <h1 className="text-lg font-bold text-white text-center leading-snug">Crossroads Custom Apparel</h1>
                         <p className="login-subtitle text-sm mt-1">Sign in to your dashboard</p>
                     </div>
 
@@ -155,7 +161,7 @@ export default function LoginPage() {
                 </div>
 
                 <p className="login-footer text-center text-xs mt-6">
-                    PrintShop Pro &mdash; Admin Portal
+                    Crossroads Custom Apparel &mdash; Admin Portal
                 </p>
             </motion.div>
         </div>

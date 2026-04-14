@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { prisma } from '../prisma.js';
 import { triggerVendorFulfillment } from '../vendors/fulfill.js';
 import { requireAuth } from '../middleware/auth.js';
-import { sendOrderConfirmation } from '../utils/email.js';
+import { sendOrderConfirmation, sendOfflinePaymentNotification } from '../utils/email.js';
 
 export const router = Router();
 
@@ -39,12 +39,14 @@ router.get('/', requireAuth, async (req, res) => {
     res.json({ data: orders, total, page, limit, pages: Math.ceil(total / limit) });
 });
 
-// create order (public checkout posts here)
+// create order (public checkout posts here — used for cash/check payments)
+// Online card payments use POST /api/payments/create-intent instead
 router.post('/', async (req, res) => {
     const {
         shopSlug, customerName, customerEmail,
         shipAddress1, shipAddress2, shipCity, shipState, shipZip, residential = true,
-        items, discountCode
+        items, discountCode,
+        paymentMethod   // 'pickup' | 'cash' | 'check'  (card goes through /payments/create-intent)
     } = req.body;
 
     const shop = shopSlug ? await prisma.shop.findFirst({ where: { slug: shopSlug } }) : null;
@@ -67,7 +69,7 @@ router.post('/', async (req, res) => {
         const d = await prisma.discountCode.findFirst({
             where: { code: discountCode, active: true, OR: [{ expiresAt: null }, { expiresAt: { gt: new Date() } }] }
         });
-        if (d) {
+        if (d && (d.maxUses === null || d.usedCount < d.maxUses)) {
             if (d.type === 'PERCENT') subtotal = Math.max(0, Math.round(subtotal * (100 - d.value) / 100));
             else subtotal = Math.max(0, subtotal - d.value);
             discountId = d.id;
@@ -81,9 +83,14 @@ router.post('/', async (req, res) => {
         create: { email: customerEmail, name: customerName }
     });
 
+    const isOffline = paymentMethod === 'pickup' || paymentMethod === 'cash' || paymentMethod === 'check';
+    const payStatus = isOffline ? 'OFFLINE_PENDING' : 'UNPAID';
+
     const order = await prisma.order.create({
         data: {
             shopId: shop?.id, status: 'UNFULFILLED',
+            paymentStatus: payStatus,
+            paymentMethod: isOffline ? 'pickup' : null,
             customerId: customer.id,
             customerName, customerEmail, shipAddress1, shipAddress2, shipCity, shipState, shipZip, residential,
             totalCents: subtotal, items: { createMany: { data: orderItems } }, discountCodeId: discountId
@@ -92,25 +99,42 @@ router.post('/', async (req, res) => {
     });
 
     // mark related checkout (if any) recovered
-    await prisma.checkout.updateMany({
-        where: { shopId: shop?.id, email: customerEmail, status: 'ABANDONED' },
-        data: { status: 'RECOVERED' }
-    });
+    if (shop?.id) {
+        await prisma.checkout.updateMany({
+            where: { shopId: shop.id, email: customerEmail, status: 'ABANDONED' },
+            data: { status: 'RECOVERED' }
+        });
+    }
 
     triggerVendorFulfillment(order).catch(err => console.error('fulfillment error', err));
 
-    // Send confirmation email (fire-and-forget)
-    sendOrderConfirmation({
-        orderId: order.id,
-        customerName: order.customerName,
-        customerEmail: order.customerEmail,
-        totalCents: order.totalCents,
-        shopName: shop?.name,
-        items: order.items.map(i => ({
-            name: i.product.name, quantity: i.quantity,
-            size: i.size, color: i.color, priceCents: i.priceCents
-        }))
-    }).catch(err => console.error('email error', err));
+    const emailItems = order.items.map(i => ({
+        name: i.product.name, quantity: i.quantity,
+        size: i.size, color: i.color, priceCents: i.priceCents
+    }));
+
+    if (isOffline) {
+        // Notify admin + send customer a "payment due" receipt
+        sendOfflinePaymentNotification({
+            orderId: order.id,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            totalCents: order.totalCents,
+            shopName: shop?.name,
+            paymentMethod: 'cash',
+            items: emailItems
+        }).catch(err => console.error('offline payment email error', err));
+    } else {
+        // Standard paid confirmation
+        sendOrderConfirmation({
+            orderId: order.id,
+            customerName: order.customerName,
+            customerEmail: order.customerEmail,
+            totalCents: order.totalCents,
+            shopName: shop?.name,
+            items: emailItems
+        }).catch(err => console.error('email error', err));
+    }
 
     res.json(order);
 });

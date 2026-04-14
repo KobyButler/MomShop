@@ -16,6 +16,7 @@ type VendorOrder = {
 type Order = {
     id: string; customerName: string; customerEmail: string;
     status: string; totalCents: number; createdAt: string;
+    paymentStatus?: string; paymentMethod?: string;
     items: any[]; shop?: { name: string };
     shipAddress1?: string; shipCity?: string; shipState?: string; shipZip?: string;
     vendorOrders?: VendorOrder[];
@@ -231,7 +232,7 @@ export default function OrdersPage() {
                                             onChange={toggleAll} className="rounded border-slate-300 accent-brand-600" />
                                     </th>
                                     <th>Order</th><th>Customer</th><th>Shop</th>
-                                    <th>Items</th><th>Total</th><th>Status</th>
+                                    <th>Items</th><th>Total</th><th>Status</th><th>Payment</th>
                                     <th>Date</th><th className="text-right pr-5">Actions</th>
                                 </tr>
                             </thead>
@@ -281,6 +282,17 @@ export default function OrdersPage() {
                                             <Badge variant={statusVariant(order.status)} size="sm">
                                                 {order.status.charAt(0) + order.status.slice(1).toLowerCase()}
                                             </Badge>
+                                        </td>
+                                        <td>
+                                            {order.paymentStatus === "PAID" ? (
+                                                <Badge variant="success" size="sm">Paid</Badge>
+                                            ) : order.paymentStatus === "OFFLINE_PENDING" ? (
+                                                <Badge variant="warning" size="sm" dot>
+                                                    Due at pickup
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="neutral" size="sm">Unpaid</Badge>
+                                            )}
                                         </td>
                                         <td>
                                             <span className="text-xs text-slate-400">

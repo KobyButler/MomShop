@@ -2,7 +2,7 @@ import "./globals.css";
 import AdminShell from "@/components/admin/AdminShell";
 
 export const metadata = {
-    title: "PrintShop Pro",
+    title: "Crossroads Custom Apparel",
     description: "Screen printing & embroidery order management"
 };
 

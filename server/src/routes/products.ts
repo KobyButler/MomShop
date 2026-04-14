@@ -6,8 +6,9 @@ import { prisma } from '../prisma.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const uploadsDir = process.env.UPLOADS_DIR ?? path.join(__dirname, '../../../public/uploads');
 const upload = multer({
-    dest: path.join(__dirname, '../../../public/uploads'),
+    dest: uploadsDir,
     limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
     fileFilter(_req, file, cb) {
         if (/^image\/(jpeg|png|webp|gif)$/.test(file.mimetype)) cb(null, true);

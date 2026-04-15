@@ -51,7 +51,7 @@ router.get('/:slug', async (req, res) => {
 
 // Update shop (toggle active, update name/notes/collection/expiry) — admin only
 router.patch('/:id', requireAuth, async (req, res) => {
-    const { id } = req.params;
+    const id = String(req.params.id);
     const { name, collectionId, expiresAt, notes, active } = req.body;
 
     const existing = await prisma.shop.findUnique({ where: { id } });

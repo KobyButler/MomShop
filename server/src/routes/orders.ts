@@ -140,15 +140,15 @@ router.post('/', async (req, res) => {
 });
 
 router.post('/:id/fulfill', requireAuth, async (req, res) => {
-    const o = await prisma.order.update({ where: { id: req.params.id }, data: { status: 'FULFILLED' } });
+    const o = await prisma.order.update({ where: { id: String(req.params.id) }, data: { status: 'FULFILLED' } });
     res.json(o);
 });
 
 router.post('/:id/cancel', requireAuth, async (req, res) => {
-    const existing = await prisma.order.findUnique({ where: { id: req.params.id } });
+    const existing = await prisma.order.findUnique({ where: { id: String(req.params.id) } });
     if (!existing) return res.status(404).json({ error: 'order not found' });
     if (existing.status === 'FULFILLED') return res.status(400).json({ error: 'cannot cancel a fulfilled order' });
-    const o = await prisma.order.update({ where: { id: req.params.id }, data: { status: 'CANCELLED' } });
+    const o = await prisma.order.update({ where: { id: String(req.params.id) }, data: { status: 'CANCELLED' } });
     res.json(o);
 });
 

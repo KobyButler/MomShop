@@ -1,10 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { prisma } from '../prisma.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const uploadsDir = process.env.UPLOADS_DIR ?? path.join(__dirname, '../../../public/uploads');
 const upload = multer({
@@ -111,12 +108,12 @@ router.post('/:id/images', upload.single('image'), async (req, res) => {
     const url = `/uploads/${filename}`;
 
     // Append the URL to the product's imagesJson
-    const product = await prisma.product.findUnique({ where: { id: req.params.id } });
+    const product = await prisma.product.findUnique({ where: { id: String(req.params.id) } });
     if (!product) return res.status(404).json({ error: 'not found' });
     const images: string[] = product.imagesJson ? JSON.parse(product.imagesJson) : [];
     images.push(url);
     const updated = await prisma.product.update({
-        where: { id: req.params.id },
+        where: { id: String(req.params.id) },
         data: { imagesJson: JSON.stringify(images) }
     });
     res.json({ url, images, product: updated });

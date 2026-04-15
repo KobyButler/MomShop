@@ -3,12 +3,9 @@ import helmet from 'helmet';
 import cors from 'cors';
 import morgan from 'morgan';
 import path from 'path';
-import { fileURLToPath } from 'url';
 import { config } from './config.js';
 import { router as api } from './routes/index';
 import { stripeWebhookHandler } from './routes/payments.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 app.use(helmet({ crossOriginResourcePolicy: { policy: 'cross-origin' } }));

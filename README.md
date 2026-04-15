@@ -1,6 +1,6 @@
-# PrintShop Pro
+# Crossroads Custom Apparel
 
-Custom order management platform for a screen printing & embroidery business. Replaces Shopify/Etsy with zero platform fees and features built specifically for bulk group orders.
+Order management platform for Crossroads Custom Apparel — a screen printing & embroidery business. Replaces Shopify/Etsy with zero platform fees and features built specifically for bulk group orders.
 
 ## Stack
 
@@ -8,9 +8,10 @@ Custom order management platform for a screen printing & embroidery business. Re
 |-------|------|
 | Frontend | Next.js 14 (App Router), Tailwind CSS |
 | Backend | Express + Prisma ORM |
-| Database | SQLite (dev) / PostgreSQL (prod) |
+| Database | SQLite (persistent volume) |
 | Auth | JWT (bcrypt passwords, localStorage + cookie) |
-| Email | Nodemailer (SMTP) |
+| Email | Nodemailer (Google Workspace SMTP) |
+| Payments | Stripe (card, Apple Pay, Google Pay) + pay-at-pickup |
 | Vendors | SanMar (SOAP) + S&S Activewear (REST) |
 
 ---
@@ -26,7 +27,7 @@ Custom order management platform for a screen printing & embroidery business. Re
 
 ```bash
 git clone <repo-url>
-cd MomShop
+cd crossroads-custom-apparel
 
 # Install server deps
 cd server && npm install
@@ -38,14 +39,8 @@ cd ../web && npm install
 ### 2. Configure environment
 
 ```bash
-# Server
-cd server
-cp .env.example .env
-# Edit .env — at minimum set JWT_SECRET to something random
-
-# Web (optional; defaults to localhost:4000)
-cd ../web
-cp .env.example .env.local
+# Server — already configured in server/.env
+# Web — already configured in web/.env.local
 ```
 
 ### 3. Database setup and seed
@@ -56,13 +51,11 @@ cd server
 # Create / migrate the database
 npx prisma migrate dev
 
-# Seed with an admin user + sample data
+# Seed with the admin user + sample data
 npm run seed
 ```
 
-The seed script creates:
-- Admin user: `admin@printshoppro.com` / `changeme123` (override with `ADMIN_EMAIL` / `ADMIN_PASSWORD` env vars)
-- Sample collection, two products, one shop, and a discount code
+Admin credentials are set by `ADMIN_EMAIL` / `ADMIN_PASSWORD` in `server/.env`.
 
 ### 4. Start both servers
 
@@ -80,21 +73,33 @@ Visit:
 - Admin dashboard: http://localhost:3000 (login required)
 - Sample storefront: http://localhost:3000/shop/panthers-boosters-1234
 
+### 5. Test Stripe payments locally
+
+```bash
+# Terminal 3 — forward webhooks to local server
+stripe listen --forward-to http://localhost:4000/api/payments/webhook
+```
+
+Copy the `whsec_...` secret it prints into `STRIPE_WEBHOOK_SECRET` in `server/.env`.
+
+Test card: `4242 4242 4242 4242` — any future expiry, any CVC.
+
 ---
 
 ## Key Concepts
 
 ### Group Shops
-Admin creates a **Shop** linked to a **Collection**. The shop gets a unique slug URL (`/shop/[slug]`) that can be shared with a team or event group. Everyone orders individually; orders are batched in the admin.
+Admin creates a **Shop** linked to a **Collection**. The shop gets a unique slug URL (`/shop/[slug]`) shared with a team or event group. Everyone orders individually; orders are batched in the admin.
 
 ### Order Flow
 1. Customer visits `/shop/[slug]`
 2. Browses products, selects sizes/colors, adds to cart
-3. Fills in contact + shipping info, optionally applies a discount code
-4. Submits → order created → vendor fulfillment triggered → confirmation email sent
+3. Fills in contact + shipping info, selects payment method
+4. **Online**: Stripe payment → order marked PAID → confirmation email sent
+5. **Pay at pickup**: Order created as OFFLINE_PENDING → admin and customer notified by email
 
 ### Vendor Fulfillment
-- **SanMar**: SOAP API. Set `SANMAR_ENABLE=true` and fill in credentials to auto-submit POs.
+- **SanMar**: SOAP API. Set `SANMAR_ENABLE=true` and fill in credentials. Requires static IP whitelisting by SanMar.
 - **S&S Activewear**: REST API. Set `SS_ENABLE=true` and fill in credentials.
 - Both are fire-and-forget after order creation. Results are stored in `VendorOrder` records visible in the order detail modal.
 
@@ -105,44 +110,29 @@ All prices stored in **cents** (integers) in the database. The UI converts to/fr
 
 ## Production Deployment
 
-### Option A — Railway / Render / Fly.io (recommended for quick start)
+Deployed on **Render** (server) + **Vercel** (frontend).
 
-1. **Database**: Provision a PostgreSQL instance and set `DATABASE_URL` to the connection string.
-2. **Server**: Deploy the `server/` directory. Set all env vars from `server/.env.example`. Run `npm run build` then `node dist/index.js`.
-3. **Web**: Deploy the `web/` directory as a Next.js app. Set `NEXT_PUBLIC_API_BASE` to your API URL (e.g. `https://api.yourdomain.com/api`).
-
-### Option B — VPS (DigitalOcean, Linode, etc.)
-
-1. Install Node 18+ and PostgreSQL on the server.
-2. Clone the repo, install deps, run migrations: `npx prisma migrate deploy`.
-3. Use **PM2** to keep the Express server running: `pm2 start dist/index.js --name printshop-api`.
-4. Use **Nginx** as a reverse proxy — route `/api` to port 4000 and everything else to the Next.js server on port 3000.
-5. Add an SSL certificate with **Certbot** (Let's Encrypt).
+- Server URL: set as `NEXT_PUBLIC_API_BASE` in Vercel environment variables
+- Persistent disk mounted at `/data` for SQLite + uploaded images
+- After first deploy, run `npx prisma migrate deploy && npm run seed` via Render shell
 
 ### Environment checklist for production
 
-- [ ] `JWT_SECRET` — long random string (e.g. `openssl rand -hex 32`)
-- [ ] `DATABASE_URL` — PostgreSQL connection string
-- [ ] `CORS_ORIGINS` — your frontend domain (e.g. `https://printshoppro.com`)
-- [ ] `SMTP_*` — your email provider credentials (SendGrid, Mailgun, Gmail SMTP, etc.)
-- [ ] `ADMIN_EMAIL` / `ADMIN_PASSWORD` — run `npm run seed` once after deploy to create the admin account
-- [ ] `SANMAR_*` / `SS_*` — vendor credentials when ready to go live
-
-### After first deploy
-
-```bash
-# On the server, run seed once to create your admin account
-cd server && npm run seed
-```
-
-Then log in and immediately change your password (currently there is no in-app password reset — update it directly in the DB or re-seed with new `ADMIN_PASSWORD`).
+- [ ] `JWT_SECRET` — long random string
+- [ ] `DATABASE_URL=file:/data/dev.db`
+- [ ] `UPLOADS_DIR=/data/uploads`
+- [ ] `CORS_ORIGINS` — production frontend domain
+- [ ] `SMTP_*` — Google Workspace SMTP credentials
+- [ ] `STRIPE_SECRET_KEY` + `STRIPE_WEBHOOK_SECRET` — from Stripe dashboard
+- [ ] `ADMIN_EMAIL` / `ADMIN_PASSWORD` — run `npm run seed` once after deploy
+- [ ] `SANMAR_*` / `SS_*` — vendor credentials
 
 ---
 
 ## Project Structure
 
 ```
-MomShop/
+crossroads-custom-apparel/
 ├── server/                  Express API
 │   ├── src/
 │   │   ├── routes/          REST route handlers
@@ -164,5 +154,7 @@ MomShop/
     ├── components/
     │   ├── admin/AdminShell.tsx   sidebar layout + logout
     │   └── ui/              Button, Card, Badge, Modal, Toast, Input, Select
+    ├── public/
+    │   └── logo.png         Crossroads Custom Apparel logo
     └── middleware.ts         Next.js edge middleware (auth guard)
 ```

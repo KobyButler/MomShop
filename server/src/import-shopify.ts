@@ -1,5 +1,5 @@
 /**
- * Shopify → PrintShop Pro data importer
+ * Shopify → Crossroads Custom Apparel data importer
  *
  * Usage:
  *   npm run import:shopify -- --products products_export.csv

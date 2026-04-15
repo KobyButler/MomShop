@@ -61,14 +61,14 @@ export default function LoginPage() {
                             initial={{ scale: 0.8, opacity: 0 }}
                             animate={{ scale: 1, opacity: 1 }}
                             transition={{ delay: 0.1, duration: 0.35, ease: [0.32, 0.72, 0, 1] }}
-                            className="mb-4"
+                            className="mb-4 flex justify-center"
                         >
                             <Image
                                 src="/logo.png"
                                 alt="Crossroads Custom Apparel"
                                 width={160}
                                 height={80}
-                                className="object-contain"
+                                className="object-contain mx-auto"
                                 priority
                             />
                         </motion.div>

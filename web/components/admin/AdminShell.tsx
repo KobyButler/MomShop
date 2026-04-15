@@ -79,7 +79,7 @@ function Sidebar() {
     return (
         <aside className="sidebar-root w-[220px] shrink-0 flex flex-col sticky top-0 h-screen overflow-y-auto scrollbar-none">
             {/* Brand */}
-            <div className="px-4 py-4 flex flex-col items-start gap-1">
+            <div className="px-4 py-4 flex flex-col items-center gap-1">
                 <Image
                     src="/logo.png"
                     alt="Crossroads Custom Apparel"

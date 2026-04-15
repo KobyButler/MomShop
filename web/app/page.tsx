@@ -70,13 +70,6 @@ export default function Dashboard() {
         }).catch(console.error).finally(() => setLoading(false));
     }, []);
 
-    const greeting = (() => {
-        const h = new Date().getHours();
-        if (h < 12) return "Good morning";
-        if (h < 18) return "Good afternoon";
-        return "Good evening";
-    })();
-
     return (
         <div className="space-y-8">
             {/* Header */}
@@ -87,7 +80,6 @@ export default function Dashboard() {
                 className="flex items-end justify-between"
             >
                 <div>
-                    <p className="text-sm text-slate-400 font-medium mb-0.5">{greeting} 👋</p>
                     <h1 className="page-title">Dashboard</h1>
                     <p className="page-subtitle">Here's what's happening with your print shop today.</p>
                 </div>

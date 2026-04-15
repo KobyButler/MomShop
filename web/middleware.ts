@@ -29,8 +29,9 @@ export const config = {
          * - /login
          * - /shop/* (public storefront)
          * - /_next/* (Next.js internals)
-         * - /favicon.ico, /robots.txt, etc.
+         * - /api/* (API routes if any)
+         * - Static files (favicon, images, etc.)
          */
-        "/((?!login|shop|_next|favicon\\.ico|robots\\.txt).*)"
+        "/((?!login|shop|_next/|_next/static|_next/image|api/|favicon\\.ico|robots\\.txt|.*\\.png|.*\\.jpg|.*\\.jpeg|.*\\.svg|.*\\.ico|.*\\.webp).*)"
     ]
 };

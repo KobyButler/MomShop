@@ -12,7 +12,6 @@ import { router as customers } from './customers.js';
 import { router as checkouts } from './checkouts.js';
 import { router as analytics } from './analytics.js';
 import { router as payments } from './payments.js';
-import { router as importUpload } from './import-upload.js';
 
 export const router = Router();
 
@@ -36,4 +35,3 @@ router.use('/shops', shops);
 
 // Payments: create-intent is public (storefront checkout); webhook is handled in index.ts with raw body
 router.use('/payments', payments);
-router.use('/import-upload', requireAuth, importUpload);

@@ -33,7 +33,6 @@ app.use(cors({ origin: config.corsOrigins, credentials: true }));
 // Stripe webhook MUST receive the raw body — register before express.json()
 app.post('/api/payments/webhook', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 
-app.use('/api/import-upload', express.json({ limit: '5mb' }));
 app.use(express.json());
 app.use(morgan('dev'));
 

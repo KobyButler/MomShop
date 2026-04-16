@@ -309,14 +309,6 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                 </motion.button>
                             )}
                         </AnimatePresence>
-                        {(step === "checkout" || step === "payment") && (
-                            <button type="button"
-                                onClick={() => step === "payment" ? setStep("checkout") : setStep("browse")}
-                                className="text-sm font-medium text-slate-500 hover:text-slate-700 flex items-center gap-1 transition-colors">
-                                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7"/></svg>
-                                {step === "payment" ? "Edit order" : "Back to products"}
-                            </button>
-                        )}
                     </div>
                 </div>
             )}

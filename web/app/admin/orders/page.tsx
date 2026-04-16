@@ -130,12 +130,12 @@ export default function OrdersPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 className="page-title">Orders</h1>
                     <p className="page-subtitle">Manage and fulfill customer orders · {totalOrders} total</p>
                 </div>
-                <div className="flex gap-2.5">
+                <div className="flex gap-2.5 flex-wrap">
                     <motion.button whileHover={{ y:-1 }} whileTap={{ scale:0.97 }}
                         onClick={() => setShowExport(true)}
                         className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white ring-1 ring-black/8 shadow-sm hover:shadow-md transition-all duration-200"
@@ -351,7 +351,7 @@ export default function OrdersPage() {
                 description={detailOrder ? `Placed ${new Date(detailOrder.createdAt).toLocaleString()}` : ""} size="lg">
                 {detailOrder && (
                     <div className="space-y-5">
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <div className="bg-slate-50 rounded-xl p-4">
                                 <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Customer</p>
                                 <p className="text-sm font-semibold text-slate-900">{detailOrder.customerName}</p>
@@ -418,7 +418,7 @@ export default function OrdersPage() {
             {/* Create Order Modal */}
             <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create Order" size="lg">
                 <form onSubmit={createOrder} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input label="Customer Name" required value={createForm.customerName}
                             onChange={e => setCreateForm(p => ({ ...p, customerName: e.target.value }))} />
                         <Input label="Customer Email" type="email" required value={createForm.customerEmail}
@@ -428,7 +428,7 @@ export default function OrdersPage() {
                         onChange={e => setCreateForm(p => ({ ...p, shipAddress1: e.target.value }))} />
                     <Input placeholder="Apt, suite, etc. (optional)" value={createForm.shipAddress2}
                         onChange={e => setCreateForm(p => ({ ...p, shipAddress2: e.target.value }))} />
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                         <Input label="City" required value={createForm.shipCity}
                             onChange={e => setCreateForm(p => ({ ...p, shipCity: e.target.value }))} />
                         <Input label="State" required value={createForm.shipState}

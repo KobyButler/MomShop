@@ -91,7 +91,7 @@ export default function ShopsPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 className="page-title">Group Shops</h1>
                     <p className="page-subtitle">Create shareable links for teams, schools, and events</p>
@@ -107,7 +107,7 @@ export default function ShopsPage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 {[
                     { label:"Total Shops", value:shops.length, color:"text-slate-900" },
                     { label:"Active", value:activeCount, color:"text-emerald-600" },
@@ -162,7 +162,7 @@ export default function ShopsPage() {
                                                     </div>
                                                     <div>
                                                         <p className="font-semibold text-slate-800 text-sm">{shop.name}</p>
-                                                        {shop.notes && <p className="text-xs text-slate-400 truncate max-w-[180px]">{shop.notes}</p>}
+                                                        {shop.notes && <p className="text-xs text-slate-400 truncate max-w-full sm:max-w-[180px]">{shop.notes}</p>}
                                                     </div>
                                                 </div>
                                             </td>

@@ -61,7 +61,7 @@ export default function DraftsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 className="page-title">Draft Orders</h1>
                     <p className="page-subtitle">Orders being built before confirmation</p>
@@ -106,19 +106,19 @@ export default function DraftsPage() {
 
             <Modal open={showCreate} onClose={() => setShowCreate(false)} title="Create Draft Order" size="lg">
                 <form onSubmit={createDraft} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input label="Customer Name" placeholder="Optional" value={form.customerName} onChange={e => setForm(p => ({ ...p, customerName:e.target.value }))} />
                         <Input label="Customer Email" type="email" placeholder="Optional" value={form.customerEmail} onChange={e => setForm(p => ({ ...p, customerEmail:e.target.value }))} />
                     </div>
                     <div>
                         <div className="flex items-center justify-between mb-2">
                             <label className="field-label mb-0">Items</label>
-                            <div className="flex gap-2">
-                                <Select value={filterColl} onChange={e => setFilterColl(e.target.value)} className="w-40">
+                            <div className="flex flex-col sm:flex-row gap-2">
+                                <Select value={filterColl} onChange={e => setFilterColl(e.target.value)} className="w-full sm:w-40">
                                     <option value="">All collections</option>
                                     {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                                 </Select>
-                                <Select value="" onChange={e => { if (e.target.value) addLine(e.target.value); }} className="w-52">
+                                <Select value="" onChange={e => { if (e.target.value) addLine(e.target.value); }} className="w-full sm:w-52">
                                     <option value="">+ Add product</option>
                                     {filteredProducts.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
                                 </Select>

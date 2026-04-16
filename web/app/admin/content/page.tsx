@@ -47,7 +47,7 @@ export default function ContentPage() {
             <div className="bg-white rounded-2xl ring-1 ring-black/5 shadow-card p-6">
                 <h2 className="text-sm font-bold text-slate-800 mb-4">New Page</h2>
                 <form onSubmit={handleSave} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input
                             label="Slug"
                             placeholder="e.g. about-us"

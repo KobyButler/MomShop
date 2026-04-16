@@ -77,13 +77,13 @@ export default function Dashboard() {
                 initial={{ opacity: 0, y: -10 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
-                className="flex items-end justify-between"
+                className="flex flex-col sm:flex-row sm:items-end justify-between gap-3"
             >
                 <div>
                     <h1 className="page-title">Dashboard</h1>
                     <p className="page-subtitle">Here's what's happening with your print shop today.</p>
                 </div>
-                <div className="flex gap-2.5">
+                <div className="flex gap-2.5 flex-wrap">
                     <Link href="/admin/orders">
                         <motion.button
                             whileHover={{ y: -1 }} whileTap={{ scale: 0.97 }}
@@ -107,7 +107,7 @@ export default function Dashboard() {
             {/* KPI Row */}
             <motion.div
                 variants={container} initial="hidden" animate="show"
-                className="grid grid-cols-2 lg:grid-cols-4 gap-4"
+                className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4"
             >
                 {loading ? (
                     [1,2,3,4].map(i => <SkeletonKpi key={i} />)
@@ -146,7 +146,7 @@ export default function Dashboard() {
             </motion.div>
 
             {/* Main grid */}
-            <div className="grid lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 {/* Recent Orders */}
                 <motion.div
                     initial={{ opacity: 0, y: 20 }}

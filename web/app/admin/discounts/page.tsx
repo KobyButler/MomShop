@@ -58,7 +58,7 @@ export default function DiscountsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 className="page-title">Discount Codes</h1>
                     <p className="page-subtitle">Create codes customers can apply at checkout</p>
@@ -153,7 +153,7 @@ export default function DiscountsPage() {
                 <form onSubmit={createCode} className="space-y-4">
                     <Input label="Code" required placeholder="e.g. SUMMER20"
                         value={form.code} onChange={e => setForm(p => ({ ...p, code:e.target.value.toUpperCase() }))} />
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="field-label">Type</label>
                             <Select value={form.type} onChange={e => setForm(p => ({ ...p, type:e.target.value }))}>
@@ -166,7 +166,7 @@ export default function DiscountsPage() {
                             placeholder={form.type==="PERCENT" ? "10" : "5.00"}
                             value={form.value} onChange={e => setForm(p => ({ ...p, value:e.target.value }))} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input label="Max uses (optional)" type="number" min="1" placeholder="Unlimited"
                             value={form.maxUses} onChange={e => setForm(p => ({ ...p, maxUses:e.target.value }))} />
                         <Input label="Expiry date (optional)" type="date"

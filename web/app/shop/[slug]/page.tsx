@@ -352,7 +352,7 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                             </div>
                         ) : (
                             <>
-                                <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 gap-5">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
                                     {products.map((p, idx) => {
                                         const sizes: string[] = p.sizesJson ? JSON.parse(p.sizesJson) : [];
                                         const colors: string[] = p.colorsJson ? JSON.parse(p.colorsJson) : [];
@@ -444,7 +444,7 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                 </div>
 
                                 {/* Trust / info bar */}
-                                <div className="mt-12 grid sm:grid-cols-3 gap-4">
+                                <div className="mt-12 grid grid-cols-1 sm:grid-cols-3 gap-4">
                                     {[
                                         { icon: "🎨", title: "Custom Decorated", desc: "Every item screen printed or embroidered by our team" },
                                         { icon: "📦", title: "Ships to You", desc: "Orders delivered directly to your door" },
@@ -467,7 +467,7 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                 {/* ── CHECKOUT ── */}
                 {step === "checkout" && (
                     <motion.div initial={{ opacity:0, x:16 }} animate={{ opacity:1, x:0 }} transition={{ duration:0.3, ease:[0.32,0.72,0,1] }}
-                        className="grid lg:grid-cols-5 gap-6">
+                        className="grid grid-cols-1 lg:grid-cols-5 gap-6">
                         <div className="lg:col-span-3 space-y-4">
                             {/* Contact */}
                             <div className="bg-white rounded-2xl ring-1 ring-black/5 p-5 space-y-4">
@@ -499,8 +499,8 @@ export default function ShopPage({ params }: { params: { slug: string } }) {
                                     <input id="addr2" className={inputCls} placeholder="Apt 4B"
                                         value={form.shipAddress2} onChange={e => setForm(p => ({ ...p, shipAddress2:e.target.value }))} />
                                 </div>
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div className="col-span-1">
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                    <div className="col-span-2 sm:col-span-1">
                                         <label className="field-label" htmlFor="city">City</label>
                                         <input id="city" required className={inputCls} placeholder="Springfield"
                                             value={form.shipCity} onChange={e => setForm(p => ({ ...p, shipCity:e.target.value }))} />

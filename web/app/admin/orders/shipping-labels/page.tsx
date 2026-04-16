@@ -49,12 +49,12 @@ export default function ShippingLabelsPage() {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 className="page-title">Shipping Labels</h1>
                     <p className="page-subtitle">Unfulfilled orders ready for shipment</p>
                 </div>
-                <div className="flex gap-2.5">
+                <div className="flex gap-2.5 flex-wrap">
                     <motion.button type="button" whileHover={{ y:-1 }} whileTap={{ scale:0.97 }} onClick={exportCSV}
                         className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-medium text-slate-700 bg-white ring-1 ring-black/8 shadow-sm hover:shadow-md transition-all duration-200">
                         <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -78,13 +78,13 @@ export default function ShippingLabelsPage() {
                 </div>
             </div>
 
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
                 <div className="relative max-w-xs flex-1">
                     <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                     <input className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 bg-white shadow-sm transition-all"
                         placeholder="Search by name or email…" value={search} onChange={e => setSearch(e.target.value)} />
                 </div>
-                <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-36">
+                <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="w-full sm:w-36">
                     <option value="">All statuses</option>
                     <option value="pending">Pending</option>
                     <option value="printed">Printed</option>

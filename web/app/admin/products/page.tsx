@@ -182,12 +182,12 @@ export default function ProductsPage() {
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                     <h1 className="page-title">Products</h1>
                     <p className="page-subtitle">Manage your product catalog and collections</p>
                 </div>
-                <div className="flex gap-2.5">
+                <div className="flex gap-2.5 flex-wrap">
                     {tab === "products" && (
                         <motion.button whileHover={{ y:-1 }} whileTap={{ scale:0.97 }}
                             onClick={() => { setForm({ ...EMPTY }); setEditProduct(null); setShowAdd(true); }}
@@ -233,11 +233,11 @@ export default function ProductsPage() {
                             <input className="w-full pl-9 pr-3 py-2 text-sm border border-slate-200 rounded-xl outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 bg-white shadow-sm transition-all"
                                 placeholder="Search products…" value={search} onChange={e => setSearch(e.target.value)} />
                         </div>
-                        <Select value={filterCollection} onChange={e => setFilterCollection(e.target.value)} className="w-44">
+                        <Select value={filterCollection} onChange={e => setFilterCollection(e.target.value)} className="w-full sm:w-44">
                             <option value="">All collections</option>
                             {collections.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </Select>
-                        <Select value={filterVendor} onChange={e => setFilterVendor(e.target.value)} className="w-40">
+                        <Select value={filterVendor} onChange={e => setFilterVendor(e.target.value)} className="w-full sm:w-40">
                             <option value="">All vendors</option>
                             <option value="SANMAR">SanMar</option>
                             <option value="SSACTIVEWEAR">S&S Activewear</option>
@@ -375,11 +375,11 @@ export default function ProductsPage() {
                 onClose={() => { setShowAdd(false); setEditProduct(null); setForm({ ...EMPTY }); }}
                 title={editProduct ? "Edit Product" : "Add Product"} size="lg">
                 <form onSubmit={saveProduct} className="space-y-4">
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input label="Product Name" required value={form.name} onChange={e => setForm(p => ({ ...p, name:e.target.value }))} />
                         <Input label="SKU" required value={form.sku} onChange={e => setForm(p => ({ ...p, sku:e.target.value }))} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
                             <label className="field-label">Vendor</label>
                             <Select value={form.vendor} onChange={e => setForm(p => ({ ...p, vendor:e.target.value }))}>
@@ -391,11 +391,11 @@ export default function ProductsPage() {
                         <Input label="Vendor SKU / Style #" placeholder="e.g. PC61"
                             value={form.vendorIdentifier} onChange={e => setForm(p => ({ ...p, vendorIdentifier:e.target.value }))} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <Input label="Brand" placeholder="e.g. Port & Company" value={form.brand} onChange={e => setForm(p => ({ ...p, brand:e.target.value }))} />
                         <Input label="Price ($)" type="number" step="0.01" min="0" required value={form.priceDollars} onChange={e => setForm(p => ({ ...p, priceDollars:e.target.value }))} />
                     </div>
-                    <div className="grid grid-cols-2 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <TagInput label="Available Sizes" tags={form.sizes} onChange={sizes => setForm(p => ({ ...p, sizes }))} placeholder="S, M, L, XL…" />
                         <TagInput label="Available Colors" tags={form.colors} onChange={colors => setForm(p => ({ ...p, colors }))} placeholder="Black, White…" />
                     </div>

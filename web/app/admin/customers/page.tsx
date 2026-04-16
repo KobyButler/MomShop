@@ -33,7 +33,7 @@ export default function CustomersPage() {
             </div>
 
             {/* Stats */}
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-4">
                 {[
                     { label:"Total Customers", value:loading ? "—" : customers.length.toString() },
                     { label:"Total Revenue",   value:loading ? "—" : fmt(totalRevenue) },

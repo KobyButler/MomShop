@@ -23,6 +23,7 @@ console.log('Config loaded, port:', config.port);
 
 import { router as api } from './routes/index';
 import { stripeWebhookHandler } from './routes/payments.js';
+import { syncInventoryDip } from './vendors/sanmar-sftp.js';
 
 console.log('Routes loaded');
 
@@ -46,4 +47,30 @@ app.get('/health', (_req, res) => res.json({ ok: true }));
 
 app.listen(config.port, '0.0.0.0', () => {
     console.log(`server listening on port ${config.port}`);
+    scheduleInventorySync();
 });
+
+/* ─── SanMar hourly inventory DIP sync ───────────────────────────────────── */
+// sanmar_dip.txt is updated hourly by SanMar — we mirror that cadence.
+
+function scheduleInventorySync() {
+    if (!config.sanmar.sftp.enable) return;
+
+    // Run immediately on startup then every hour
+    runInventorySync();
+    setInterval(runInventorySync, 60 * 60 * 1000);
+}
+
+async function runInventorySync() {
+    try {
+        console.log('[SanMar] Starting hourly inventory DIP sync…');
+        const result = await syncInventoryDip();
+        if (result.status === 'SUCCESS') {
+            console.log(`[SanMar] Inventory sync complete — ${result.rowsProcessed} keys updated in ${result.durationMs}ms`);
+        } else {
+            console.error('[SanMar] Inventory sync failed:', result.error);
+        }
+    } catch (err) {
+        console.error('[SanMar] Inventory sync threw:', err);
+    }
+}

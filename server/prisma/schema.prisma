@@ -156,3 +156,42 @@ model Checkout {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// SanMar catalog rows synced from SFTP CSV files
+model SanmarCatalogProduct {
+  id               String   @id @default(cuid())
+  style            String
+  colorName        String   @default("")
+  sizeName         String   @default("")
+  title            String?
+  description      String?
+  brand            String?
+  category         String?
+  subcategory      String?
+  priceCents       Int      @default(0)
+  inventoryQty     Int      @default(0)
+  colorSwatchImage String?
+  productImage     String?
+  weightLbs        Float?
+  inventoryKey     String?
+  rawData          String?
+  updatedAt        DateTime @updatedAt
+  createdAt        DateTime @default(now())
+
+  @@unique([style, colorName, sizeName])
+  @@index([style])
+  @@index([category])
+}
+
+// Tracks each SFTP/SOAP sync operation
+model SanmarSyncLog {
+  id            String    @id @default(cuid())
+  type          String    // CATALOG_SDL | CATALOG_EPDD | INVENTORY_DIP | SOAP_CHECK
+  status        String    // RUNNING | SUCCESS | ERROR
+  rowsProcessed Int?
+  rowsTotal     Int?
+  fileSizeBytes Int?
+  error         String?
+  startedAt     DateTime  @default(now())
+  completedAt   DateTime?
+}

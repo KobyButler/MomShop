@@ -44,9 +44,11 @@ export const config = {
         enable: bool(process.env.SANMAR_ENABLE),
         sftp: {
             host: process.env.SANMAR_SFTP_HOST ?? '',
+            port: Number(process.env.SANMAR_SFTP_PORT ?? 2200),
             user: process.env.SANMAR_SFTP_USER ?? '',
             password: process.env.SANMAR_SFTP_PASSWORD ?? '',
-            enable: bool(process.env.SANMAR_SFTP_ENABLE)
+            enable: bool(process.env.SANMAR_SFTP_ENABLE),
+            remoteDir: process.env.SANMAR_SFTP_DIR ?? 'SanmarPDD'
         }
     }
 };

@@ -217,7 +217,7 @@ function mapEPDDRow(row: Record<string, string>) {
 
 /* ─── Sync SDL_N catalog file ────────────────────────────────────────────── */
 
-export async function syncCatalogSDL(): Promise<SanmarSyncResult> {
+export async function syncCatalogSDL(existingLogId?: string): Promise<SanmarSyncResult> {
     return runSync('CATALOG_SDL', async (sftp, logId) => {
         const dir = await resolveRemoteDir(sftp);
         const files = await sftp.list(dir);
@@ -246,12 +246,12 @@ export async function syncCatalogSDL(): Promise<SanmarSyncResult> {
         }
 
         return { rowsTotal: rows.length, rowsProcessed: processed };
-    });
+    }, existingLogId);
 }
 
 /* ─── Sync EPDD catalog file ─────────────────────────────────────────────── */
 
-export async function syncCatalogEPDD(): Promise<SanmarSyncResult> {
+export async function syncCatalogEPDD(existingLogId?: string): Promise<SanmarSyncResult> {
     return runSync('CATALOG_EPDD', async (sftp, logId) => {
         const dir = await resolveRemoteDir(sftp);
         const files = await sftp.list(dir);
@@ -280,13 +280,13 @@ export async function syncCatalogEPDD(): Promise<SanmarSyncResult> {
         }
 
         return { rowsTotal: rows.length, rowsProcessed: processed };
-    });
+    }, existingLogId);
 }
 
 /* ─── Sync inventory DIP file (hourly) ──────────────────────────────────── */
 // sanmar_dip.txt format: InventoryKey|Qty  (pipe-delimited, no header)
 
-export async function syncInventoryDip(): Promise<SanmarSyncResult> {
+export async function syncInventoryDip(existingLogId?: string): Promise<SanmarSyncResult> {
     return runSync('INVENTORY_DIP', async (sftp, logId) => {
         const dir = await resolveRemoteDir(sftp);
         const remotePath = dir === '.' ? 'sanmar_dip.txt' : `${dir}/sanmar_dip.txt`;
@@ -322,17 +322,20 @@ export async function syncInventoryDip(): Promise<SanmarSyncResult> {
         }
 
         return { rowsTotal: lines.length, rowsProcessed: processed };
-    });
+    }, existingLogId);
 }
 
 /* ─── Generic sync runner with logging ──────────────────────────────────── */
 
 async function runSync(
     type: string,
-    fn: (sftp: SftpClient, logId: string) => Promise<{ rowsTotal: number; rowsProcessed: number }>
+    fn: (sftp: SftpClient, logId: string) => Promise<{ rowsTotal: number; rowsProcessed: number }>,
+    existingLogId?: string
 ): Promise<SanmarSyncResult> {
     const startedAt = Date.now();
-    const log = await prisma.sanmarSyncLog.create({ data: { type, status: 'RUNNING' } });
+    const log = existingLogId
+        ? { id: existingLogId }
+        : await prisma.sanmarSyncLog.create({ data: { type, status: 'RUNNING' } });
 
     const sftp = new SftpClient();
     try {

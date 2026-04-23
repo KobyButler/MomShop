@@ -322,23 +322,43 @@ export default function SanMarPage() {
         }
     }
 
-    /* ── Trigger a sync ── */
+    /* ── Trigger a sync (fire-and-forget — poll until done) ── */
     async function triggerSync(key: string, endpoint: string) {
         setSyncing(s => ({ ...s, [key]: true }));
         try {
             const r = await api(endpoint, { method: "POST" });
-            if (r.status === "SUCCESS") {
-                toast(`Sync complete — ${r.rowsProcessed?.toLocaleString()} rows in ${r.durationMs}ms`);
-            } else {
-                toast(r.error || "Sync failed", "error");
-            }
-            // Refresh status
+            // Server returns immediately with RUNNING status; poll until complete
+            toast(r.message ?? "Sync started — check Sync Logs tab for progress");
             api("/sanmar/status").then(setStatus).catch(console.error);
+
+            if (r.logId) {
+                pollSyncLog(r.logId, key);
+            }
         } catch (err: any) {
             toast(err.message || "Sync failed", "error");
-        } finally {
             setSyncing(s => ({ ...s, [key]: false }));
         }
+    }
+
+    /* ── Poll a sync log until it's no longer RUNNING ── */
+    function pollSyncLog(logId: string, key: string) {
+        const interval = setInterval(async () => {
+            try {
+                const logs = await api(`/sanmar/sync-logs?limit=1&offset=0`);
+                const log = (logs.logs ?? []).find((l: SyncLog) => l.id === logId);
+                if (!log) return;
+                if (log.status !== "RUNNING") {
+                    clearInterval(interval);
+                    setSyncing(s => ({ ...s, [key]: false }));
+                    if (log.status === "SUCCESS") {
+                        toast(`Sync complete — ${log.rowsProcessed?.toLocaleString()} rows processed`);
+                    } else {
+                        toast(`Sync failed: ${log.error?.slice(0, 100)}`, "error");
+                    }
+                    api("/sanmar/status").then(setStatus).catch(console.error);
+                }
+            } catch { /* ignore poll errors */ }
+        }, 5000); // check every 5 seconds
     }
 
     /* ── Load style detail ── */

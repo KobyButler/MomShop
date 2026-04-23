@@ -62,37 +62,36 @@ router.get('/sftp/files', async (_req, res) => {
     }
 });
 
-/* ─── Sync catalog (SDL_N) ────────────────────────────────────────────────── */
+/* ─── Sync catalog (SDL_N) — fire and forget, poll /sync-logs for status ─── */
 
 router.post('/sync/catalog-sdl', async (_req, res) => {
-    try {
-        const result = await syncCatalogSDL();
-        res.json(result);
-    } catch (err: any) {
-        res.status(500).json({ error: err.message });
-    }
+    // Create the log entry first so the client has an ID to poll
+    const log = await prisma.sanmarSyncLog.create({ data: { type: 'CATALOG_SDL', status: 'RUNNING' } });
+    res.json({ logId: log.id, status: 'RUNNING', message: 'Sync started — this file is ~185 MB and will take several minutes. Check Sync Logs for progress.' });
+    // Run in background — do not await
+    syncCatalogSDL(log.id).catch(err =>
+        prisma.sanmarSyncLog.update({ where: { id: log.id }, data: { status: 'ERROR', error: String(err?.message ?? err).slice(0, 2000), completedAt: new Date() } }).catch(() => {})
+    );
 });
 
-/* ─── Sync catalog (EPDD) ─────────────────────────────────────────────────── */
+/* ─── Sync catalog (EPDD) — fire and forget ──────────────────────────────── */
 
 router.post('/sync/catalog-epdd', async (_req, res) => {
-    try {
-        const result = await syncCatalogEPDD();
-        res.json(result);
-    } catch (err: any) {
-        res.status(500).json({ error: err.message });
-    }
+    const log = await prisma.sanmarSyncLog.create({ data: { type: 'CATALOG_EPDD', status: 'RUNNING' } });
+    res.json({ logId: log.id, status: 'RUNNING', message: 'Sync started — this file is ~500 MB and will take 10–20 minutes. Check Sync Logs for progress.' });
+    syncCatalogEPDD(log.id).catch(err =>
+        prisma.sanmarSyncLog.update({ where: { id: log.id }, data: { status: 'ERROR', error: String(err?.message ?? err).slice(0, 2000), completedAt: new Date() } }).catch(() => {})
+    );
 });
 
-/* ─── Sync inventory DIP (sanmar_dip.txt) ────────────────────────────────── */
+/* ─── Sync inventory DIP (sanmar_dip.txt) — fire and forget ─────────────── */
 
 router.post('/sync/inventory-dip', async (_req, res) => {
-    try {
-        const result = await syncInventoryDip();
-        res.json(result);
-    } catch (err: any) {
-        res.status(500).json({ error: err.message });
-    }
+    const log = await prisma.sanmarSyncLog.create({ data: { type: 'INVENTORY_DIP', status: 'RUNNING' } });
+    res.json({ logId: log.id, status: 'RUNNING', message: 'Inventory DIP sync started.' });
+    syncInventoryDip(log.id).catch(err =>
+        prisma.sanmarSyncLog.update({ where: { id: log.id }, data: { status: 'ERROR', error: String(err?.message ?? err).slice(0, 2000), completedAt: new Date() } }).catch(() => {})
+    );
 });
 
 /* ─── Sync logs ───────────────────────────────────────────────────────────── */

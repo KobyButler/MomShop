@@ -134,24 +134,38 @@ function toCents(val: string | undefined): number {
 }
 
 /* ─── Row mappers ────────────────────────────────────────────────────────── */
+// Actual SanMar SDL_N / EPDD column names confirmed from live file headers.
+// The BOM character (ï»¿) may prefix UNIQUE_KEY — handled by stripping keys.
+
+function col(row: Record<string, string>, ...keys: string[]): string {
+    for (const k of keys) {
+        // Strip BOM from key name in case csv-parse doesn't fully clean it
+        const val = row[k] ?? row[k.replace(/^\ufeff/, '')] ?? row['\ufeff' + k];
+        if (val !== undefined) return val.trim();
+    }
+    return '';
+}
 
 function mapSDLRow(row: Record<string, string>) {
-    const style     = (row['Style'] ?? row['STYLE'] ?? row['style'] ?? '').trim();
-    const colorName = (row['ColorName'] ?? row['Color'] ?? row['COLOR'] ?? '').trim();
-    const sizeName  = (row['SizeName'] ?? row['SIZE'] ?? row['Size'] ?? '').trim();
+    const style     = col(row, 'STYLE#', 'Style#', 'STYLE', 'Style', 'style');
+    const colorName = col(row, 'COLOR_NAME', 'ColorName', 'COLOR');
+    const sizeName  = col(row, 'SIZE', 'SizeName', 'Size');
     if (!style) return null;
     return {
-        style, colorName, sizeName,
-        title:            (row['ProductTitle'] ?? row['StyleName'] ?? '').trim() || null,
-        description:      (row['Description'] ?? '').trim() || null,
-        brand:            (row['Brand'] ?? row['BrandName'] ?? '').trim() || null,
-        category:         (row['Category'] ?? row['MainCategory'] ?? '').trim() || null,
-        subcategory:      (row['SubCategory'] ?? '').trim() || null,
-        priceCents:       toCents(row['Price1'] ?? row['Price']),
-        inventoryKey:     (row['InventoryKey'] ?? '').trim() || null,
-        colorSwatchImage: (row['ColorSwatch'] ?? row['ColorSwatchImage'] ?? '').trim() || null,
-        productImage:     (row['FrontModel'] ?? row['ProductImage'] ?? '').trim() || null,
-        weightLbs:        row['Weight'] ? parseFloat(row['Weight']) : null,
+        style,
+        colorName,
+        sizeName,
+        title:            col(row, 'PRODUCT_TITLE', 'ProductTitle', 'StyleName')       || null,
+        description:      col(row, 'PRODUCT_DESCRIPTION', 'Description')               || null,
+        brand:            col(row, 'MILL', 'Brand', 'BrandName')                       || null,
+        category:         col(row, 'CATEGORY_NAME', 'Category', 'MainCategory')        || null,
+        subcategory:      col(row, 'SUBCATEGORY_NAME', 'SubCategory')                  || null,
+        priceCents:       toCents(col(row, 'PIECE_PRICE', 'Price1', 'Price')),
+        inventoryKey:     col(row, 'INVENTORY_KEY', 'InventoryKey')                    || null,
+        colorSwatchImage: col(row, 'COLOR_SWATCH_IMAGE', 'ColorSwatch')                || null,
+        productImage:     col(row, 'PRODUCT_IMAGE', 'FRONT_MODEL_IMAGE_URL', 'FrontModel') || null,
+        weightLbs:        col(row, 'PIECE_WEIGHT', 'Weight')
+                            ? parseFloat(col(row, 'PIECE_WEIGHT', 'Weight')) : null,
         rawData:          JSON.stringify(row).slice(0, 2000),
     };
 }
@@ -161,9 +175,9 @@ function mapEPDDRow(row: Record<string, string>) {
     if (!base) return null;
     return {
         ...base,
-        category:     (row['MainCategory'] ?? row['Category'] ?? base.category ?? '').trim() || null,
-        subcategory:  (row['SubCategory'] ?? base.subcategory ?? '').trim() || null,
-        inventoryQty: parseInt(row['BulkInventory'] ?? row['Inventory'] ?? '0', 10) || 0,
+        category:     col(row, 'CATEGORY_NAME', 'MainCategory', 'Category') || base.category,
+        subcategory:  col(row, 'SUBCATEGORY_NAME', 'SubCategory')            || base.subcategory,
+        inventoryQty: parseInt(col(row, 'INVENTORY_QUANTITY', 'BulkInventory', 'Inventory') || '0', 10) || 0,
     };
 }
 

@@ -56,9 +56,12 @@ app.listen(config.port, '0.0.0.0', () => {
 function scheduleInventorySync() {
     if (!config.sanmar.sftp.enable) return;
 
-    // Run immediately on startup then every hour
-    runInventorySync();
-    setInterval(runInventorySync, 60 * 60 * 1000);
+    // Delay first run by 5 minutes to let the server fully stabilize after boot,
+    // then repeat every hour. Running immediately on boot caused OOM on 512MB instances.
+    setTimeout(() => {
+        runInventorySync();
+        setInterval(runInventorySync, 60 * 60 * 1000);
+    }, 5 * 60 * 1000);
 }
 
 async function runInventorySync() {

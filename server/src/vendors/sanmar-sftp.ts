@@ -144,68 +144,41 @@ function mapEPDDRow(row: Record<string, string>) {
 }
 
 /* ─── Stream-parse a local CSV file, upsert in batches ──────────────────── */
-// Never holds more than `batchSize` rows in memory at once.
+// Uses `for await` on the parser's async iterator — correct backpressure,
+// no event-emitter race conditions, never holds more than batchSize rows in RAM.
 
-function streamCSVUpsert(
+async function streamCSVUpsert(
     localPath: string,
     mapper: (row: Record<string, string>) => any,
     upsertFn: (payload: any) => Promise<void>,
-    batchSize = 200
+    batchSize = 100
 ): Promise<{ rowsTotal: number; rowsProcessed: number }> {
-    return new Promise((resolve, reject) => {
-        let rowsTotal = 0;
-        let rowsProcessed = 0;
-        let batch: any[] = [];
-        let draining = false;
+    let rowsTotal = 0;
+    let rowsProcessed = 0;
+    let batch: any[] = [];
 
-        const parser = parse({
-            delimiter: ',',
-            columns: true,
-            skip_empty_lines: true,
-            trim: true,
-            relax_column_count: true,
-            bom: true,
-        });
+    const parser = createReadStream(localPath, { encoding: 'latin1' }).pipe(
+        parse({ delimiter: ',', columns: true, skip_empty_lines: true, trim: true, relax_column_count: true, bom: true })
+    );
 
-        const fileStream = createReadStream(localPath, { encoding: 'latin1' });
+    for await (const record of parser as AsyncIterable<Record<string, string>>) {
+        rowsTotal++;
+        const payload = mapper(record);
+        if (payload) batch.push(payload);
 
-        parser.on('readable', async () => {
-            if (draining) return;
-            let record: Record<string, string>;
-            while ((record = parser.read()) !== null) {
-                rowsTotal++;
-                const payload = mapper(record);
-                if (payload) batch.push(payload);
+        if (batch.length >= batchSize) {
+            const toFlush = batch.splice(0);
+            // Sequential writes — SQLite doesn't handle high-concurrency upserts well
+            for (const p of toFlush) await upsertFn(p);
+            rowsProcessed += toFlush.length;
+        }
+    }
 
-                if (batch.length >= batchSize) {
-                    draining = true;
-                    parser.pause();
-                    const toFlush = batch.splice(0);
-                    try {
-                        await Promise.all(toFlush.map(upsertFn));
-                        rowsProcessed += toFlush.length;
-                    } catch (e) {
-                        reject(e); return;
-                    }
-                    draining = false;
-                    parser.resume();
-                }
-            }
-        });
+    // Flush remainder
+    for (const p of batch) await upsertFn(p);
+    rowsProcessed += batch.length;
 
-        parser.on('end', async () => {
-            if (batch.length > 0) {
-                try {
-                    await Promise.all(batch.map(upsertFn));
-                    rowsProcessed += batch.length;
-                } catch (e) { reject(e); return; }
-            }
-            resolve({ rowsTotal, rowsProcessed });
-        });
-
-        parser.on('error', reject);
-        fileStream.pipe(parser);
-    });
+    return { rowsTotal, rowsProcessed };
 }
 
 /* ─── Sync SDL_N catalog ─────────────────────────────────────────────────── */
@@ -280,15 +253,16 @@ export async function syncInventoryDip(existingLogId?: string): Promise<SanmarSy
         try {
             let rowsTotal = 0;
             let rowsProcessed = 0;
-            const BATCH = 500;
+            const BATCH = 200;
             let batch: Array<{ key: string; qty: number }> = [];
 
-            const rl = createInterface({ input: createReadStream(localPath), crlfDelay: Infinity });
+            const rl = createInterface({ input: createReadStream(localPath, { encoding: 'utf8' }), crlfDelay: Infinity });
 
             for await (const line of rl) {
-                const parts = line.split('|');
-                const key = parts[0]?.trim();
-                const qty = parseInt(parts[1]?.trim() ?? '', 10);
+                if (!line.includes('|')) continue;
+                const pipe = line.indexOf('|');
+                const key = line.slice(0, pipe).trim();
+                const qty = parseInt(line.slice(pipe + 1).trim(), 10);
                 if (!key || isNaN(qty)) continue;
 
                 rowsTotal++;
@@ -296,20 +270,18 @@ export async function syncInventoryDip(existingLogId?: string): Promise<SanmarSy
 
                 if (batch.length >= BATCH) {
                     const toFlush = batch.splice(0);
-                    await Promise.all(toFlush.map(({ key: inventoryKey, qty: inventoryQty }) =>
-                        prisma.sanmarCatalogProduct.updateMany({ where: { inventoryKey }, data: { inventoryQty } })
-                    ));
+                    for (const { key: inventoryKey, qty: inventoryQty } of toFlush) {
+                        await prisma.sanmarCatalogProduct.updateMany({ where: { inventoryKey }, data: { inventoryQty } });
+                    }
                     rowsProcessed += toFlush.length;
                     await prisma.sanmarSyncLog.update({ where: { id: logId }, data: { rowsProcessed } }).catch(() => {});
                 }
             }
 
-            if (batch.length > 0) {
-                await Promise.all(batch.map(({ key: inventoryKey, qty: inventoryQty }) =>
-                    prisma.sanmarCatalogProduct.updateMany({ where: { inventoryKey }, data: { inventoryQty } })
-                ));
-                rowsProcessed += batch.length;
+            for (const { key: inventoryKey, qty: inventoryQty } of batch) {
+                await prisma.sanmarCatalogProduct.updateMany({ where: { inventoryKey }, data: { inventoryQty } });
             }
+            rowsProcessed += batch.length;
 
             return { rowsTotal, rowsProcessed };
         } finally {

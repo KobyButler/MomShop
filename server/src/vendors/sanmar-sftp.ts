@@ -57,19 +57,48 @@ function buildConnectConfig(): any {
     };
 }
 
+/* ─── Discover the actual remote directory ───────────────────────────────── */
+// SanMar sometimes places files at root or under a differently-cased folder.
+// We try the configured dir first, then root, then any dir that looks like PDD.
+
+async function resolveRemoteDir(sftp: SftpClient): Promise<string> {
+    const configured = config.sanmar.sftp.remoteDir;
+
+    // Try configured dir first
+    try {
+        await sftp.list(configured);
+        return configured;
+    } catch { /* fall through */ }
+
+    // List root to discover what's actually there
+    const rootEntries = await sftp.list('.');
+    const dirs = rootEntries.filter((e: any) => e.type === 'd').map((e: any) => e.name as string);
+
+    // Look for a directory matching the configured name (case-insensitive)
+    const match = dirs.find(d => d.toLowerCase() === configured.toLowerCase())
+        ?? dirs.find(d => d.toLowerCase().includes('pdd'))
+        ?? dirs.find(d => d.toLowerCase().includes('sanmar'));
+
+    if (match) return match;
+
+    // Nothing found — files may be at root level
+    return '.';
+}
+
 /* ─── Test connection ────────────────────────────────────────────────────── */
 
-export async function testSftpConnection(): Promise<{ ok: boolean; files?: SftpFileInfo[]; error?: string }> {
+export async function testSftpConnection(): Promise<{ ok: boolean; files?: SftpFileInfo[]; resolvedDir?: string; error?: string }> {
     const sftp = new SftpClient();
     try {
         await sftp.connect(buildConnectConfig());
-        const list = await sftp.list(config.sanmar.sftp.remoteDir);
-        const files = list.map(f => ({
+        const dir = await resolveRemoteDir(sftp);
+        const list = await sftp.list(dir);
+        const files = list.map((f: any) => ({
             name: f.name,
             size: f.size,
             modifyTime: typeof f.modifyTime === 'number' ? f.modifyTime : Date.now(),
         }));
-        return { ok: true, files };
+        return { ok: true, files, resolvedDir: dir };
     } catch (err: any) {
         return { ok: false, error: err?.message ?? String(err) };
     } finally {
@@ -83,8 +112,9 @@ export async function listSftpFiles(): Promise<SftpFileInfo[]> {
     const sftp = new SftpClient();
     try {
         await sftp.connect(buildConnectConfig());
-        const list = await sftp.list(config.sanmar.sftp.remoteDir);
-        return list.map(f => ({
+        const dir = await resolveRemoteDir(sftp);
+        const list = await sftp.list(dir);
+        return list.map((f: any) => ({
             name: f.name,
             size: f.size,
             modifyTime: typeof f.modifyTime === 'number' ? f.modifyTime : Date.now(),
@@ -96,8 +126,8 @@ export async function listSftpFiles(): Promise<SftpFileInfo[]> {
 
 /* ─── Download file to buffer ────────────────────────────────────────────── */
 
-async function downloadToBuffer(sftp: SftpClient, filename: string): Promise<Buffer> {
-    const remotePath = `${config.sanmar.sftp.remoteDir}/${filename}`;
+async function downloadToBuffer(sftp: SftpClient, filename: string, remoteDir: string): Promise<Buffer> {
+    const remotePath = remoteDir === '.' ? filename : `${remoteDir}/${filename}`;
     // ssh2-sftp-client returns a Buffer when no dst argument is given
     const data = await (sftp as any).get(remotePath);
     if (Buffer.isBuffer(data)) return data;
@@ -189,11 +219,12 @@ function mapEPDDRow(row: Record<string, string>) {
 
 export async function syncCatalogSDL(): Promise<SanmarSyncResult> {
     return runSync('CATALOG_SDL', async (sftp, logId) => {
-        const files = await sftp.list(config.sanmar.sftp.remoteDir);
-        const sdlFile = files.find(f => /SanMar_SDL_N/i.test(f.name) && /\.csv$/i.test(f.name));
-        if (!sdlFile) throw new Error('SanMar_SDL_N CSV not found in SanmarPDD folder');
+        const dir = await resolveRemoteDir(sftp);
+        const files = await sftp.list(dir);
+        const sdlFile = (files as any[]).find(f => /SanMar_SDL_N/i.test(f.name) && /\.csv$/i.test(f.name));
+        if (!sdlFile) throw new Error(`SanMar_SDL_N CSV not found in "${dir}". Files: ${(files as any[]).map((f:any)=>f.name).join(', ')}`);
 
-        const buf = await downloadToBuffer(sftp, sdlFile.name);
+        const buf = await downloadToBuffer(sftp, sdlFile.name, dir);
         await prisma.sanmarSyncLog.update({ where: { id: logId }, data: { fileSizeBytes: buf.length } });
 
         const rows = await parseCSV(buf);
@@ -222,11 +253,12 @@ export async function syncCatalogSDL(): Promise<SanmarSyncResult> {
 
 export async function syncCatalogEPDD(): Promise<SanmarSyncResult> {
     return runSync('CATALOG_EPDD', async (sftp, logId) => {
-        const files = await sftp.list(config.sanmar.sftp.remoteDir);
-        const epddFile = files.find(f => /SanMar_EPDD/i.test(f.name) && /\.csv$/i.test(f.name));
-        if (!epddFile) throw new Error('SanMar_EPDD CSV not found in SanmarPDD folder');
+        const dir = await resolveRemoteDir(sftp);
+        const files = await sftp.list(dir);
+        const epddFile = (files as any[]).find(f => /SanMar_EPDD/i.test(f.name) && /\.csv$/i.test(f.name));
+        if (!epddFile) throw new Error(`SanMar_EPDD CSV not found in "${dir}". Files: ${(files as any[]).map((f:any)=>f.name).join(', ')}`);
 
-        const buf = await downloadToBuffer(sftp, epddFile.name);
+        const buf = await downloadToBuffer(sftp, epddFile.name, dir);
         await prisma.sanmarSyncLog.update({ where: { id: logId }, data: { fileSizeBytes: buf.length } });
 
         const rows = await parseCSV(buf);
@@ -256,7 +288,8 @@ export async function syncCatalogEPDD(): Promise<SanmarSyncResult> {
 
 export async function syncInventoryDip(): Promise<SanmarSyncResult> {
     return runSync('INVENTORY_DIP', async (sftp, logId) => {
-        const remotePath = `${config.sanmar.sftp.remoteDir}/sanmar_dip.txt`;
+        const dir = await resolveRemoteDir(sftp);
+        const remotePath = dir === '.' ? 'sanmar_dip.txt' : `${dir}/sanmar_dip.txt`;
         const data = await (sftp as any).get(remotePath);
         const buf: Buffer = Buffer.isBuffer(data) ? data : await new Promise((res, rej) => {
             const chunks: Buffer[] = [];

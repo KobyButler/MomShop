@@ -163,7 +163,7 @@ function mapSDLRow(row: Record<string, string>) {
         priceCents:       toCents(col(row, 'PIECE_PRICE', 'Price1', 'Price')),
         inventoryKey:     col(row, 'INVENTORY_KEY', 'InventoryKey')                    || null,
         colorSwatchImage: col(row, 'COLOR_SWATCH_IMAGE', 'ColorSwatch')                || null,
-        productImage:     col(row, 'PRODUCT_IMAGE', 'FRONT_MODEL_IMAGE_URL', 'FrontModel') || null,
+        productImage:     col(row, 'FRONT_MODEL_IMAGE_URL', 'BACK_MODEL_IMAGE_URL', 'PRODUCT_IMAGE', 'FrontModel') || null,
         weightLbs:        col(row, 'PIECE_WEIGHT', 'Weight')
                             ? parseFloat(col(row, 'PIECE_WEIGHT', 'Weight')) : null,
         rawData:          JSON.stringify(row).slice(0, 2000),

@@ -133,13 +133,16 @@ router.get('/sync-logs', async (req, res) => {
 /* ─── Browse catalog ──────────────────────────────────────────────────────── */
 
 router.get('/catalog', async (req, res) => {
-    const q          = (req.query.q as string ?? '').trim();
-    const category   = req.query.category as string | undefined;
-    const brand      = req.query.brand as string | undefined;
-    const style      = req.query.style as string | undefined;
-    const limit      = Math.min(parseInt(req.query.limit as string ?? '50', 10), 200);
-    const page       = Math.max(1, parseInt(req.query.page as string ?? '1', 10));
-    const skip       = (page - 1) * limit;
+    const q           = (req.query.q as string ?? '').trim();
+    const category    = req.query.category    as string | undefined;
+    const subcategory = req.query.subcategory as string | undefined;
+    const brand       = req.query.brand       as string | undefined;
+    const colorName   = req.query.colorName   as string | undefined;
+    const style       = req.query.style       as string | undefined;
+    const inStock     = req.query.inStock === 'true';
+    const limit       = Math.min(parseInt(req.query.limit as string ?? '50', 10), 200);
+    const page        = Math.max(1, parseInt(req.query.page as string ?? '1', 10));
+    const skip        = (page - 1) * limit;
 
     const where: any = {};
     if (style) {
@@ -152,8 +155,11 @@ router.get('/catalog', async (req, res) => {
             { description: { contains: q, mode: 'insensitive' } },
         ];
     }
-    if (category) where.category = { contains: category, mode: 'insensitive' };
-    if (brand)    where.brand    = { contains: brand,    mode: 'insensitive' };
+    if (category)    where.category    = { contains: category,    mode: 'insensitive' };
+    if (subcategory) where.subcategory = { contains: subcategory, mode: 'insensitive' };
+    if (brand)       where.brand       = { contains: brand,       mode: 'insensitive' };
+    if (colorName)   where.colorName   = { contains: colorName,   mode: 'insensitive' };
+    if (inStock)     where.inventoryQty = { gt: 0 };
 
     const [data, total] = await Promise.all([
         prisma.sanmarCatalogProduct.findMany({ where, take: limit, skip, orderBy: [{ style: 'asc' }, { colorName: 'asc' }, { sizeName: 'asc' }] }),
@@ -166,13 +172,29 @@ router.get('/catalog', async (req, res) => {
 /* ─── Catalog categories / brands ────────────────────────────────────────── */
 
 router.get('/catalog/meta', async (_req, res) => {
-    const [cats, brands] = await Promise.all([
-        prisma.sanmarCatalogProduct.findMany({ select: { category: true }, distinct: ['category'], orderBy: { category: 'asc' } }),
-        prisma.sanmarCatalogProduct.findMany({ select: { brand: true },    distinct: ['brand'],    orderBy: { brand: 'asc' }    }),
+    const [cats, subcatPairs, brands, colors] = await Promise.all([
+        prisma.sanmarCatalogProduct.findMany({
+            select: { category: true }, distinct: ['category'], orderBy: { category: 'asc' },
+        }),
+        prisma.sanmarCatalogProduct.findMany({
+            select: { category: true, subcategory: true },
+            distinct: ['category', 'subcategory'],
+            where: { subcategory: { not: null } },
+            orderBy: [{ category: 'asc' }, { subcategory: 'asc' }],
+        }),
+        prisma.sanmarCatalogProduct.findMany({
+            select: { brand: true }, distinct: ['brand'], orderBy: { brand: 'asc' },
+        }),
+        prisma.sanmarCatalogProduct.findMany({
+            select: { colorName: true }, distinct: ['colorName'], orderBy: { colorName: 'asc' },
+        }),
     ]);
     res.json({
-        categories: cats.map(c => c.category).filter(Boolean),
-        brands:     brands.map(b => b.brand).filter(Boolean),
+        categories:    cats.map(c => c.category).filter(Boolean),
+        subcategories: subcatPairs.filter(r => r.category && r.subcategory)
+            .map(r => ({ category: r.category!, subcategory: r.subcategory! })),
+        brands:        brands.map(b => b.brand).filter(Boolean),
+        colors:        colors.map(c => c.colorName).filter(Boolean),
     });
 });
 

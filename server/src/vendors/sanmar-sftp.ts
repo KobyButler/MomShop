@@ -62,6 +62,30 @@ function downloadToTemp(sftp: SftpClient, remotePath: string, localPath: string)
     });
 }
 
+/* ─── Peek: download first N lines of a remote file ─────────────────────── */
+
+export async function peekFile(filename: string, maxLines = 5): Promise<string> {
+    const sftp = new SftpClient();
+    try {
+        await sftp.connect(buildConnectConfig());
+        const dir  = await resolveRemoteDir(sftp);
+        const remotePath = dir === '.' ? filename : `${dir}/${filename}`;
+        const localPath  = `/tmp/sanmar_peek_${Date.now()}.tmp`;
+        await downloadToTemp(sftp, remotePath, localPath);
+
+        const collected: string[] = [];
+        const rl = createInterface({ input: createReadStream(localPath, { encoding: 'latin1' }), crlfDelay: Infinity });
+        for await (const line of rl) {
+            collected.push(line);
+            if (collected.length >= maxLines) break;
+        }
+        await unlink(localPath).catch(() => {});
+        return collected.join('\n');
+    } finally {
+        await sftp.end().catch(() => {});
+    }
+}
+
 /* ─── Test connection ────────────────────────────────────────────────────── */
 
 export async function testSftpConnection(): Promise<{ ok: boolean; files?: SftpFileInfo[]; resolvedDir?: string; error?: string }> {
@@ -152,33 +176,38 @@ async function streamCSVUpsert(
     mapper: (row: Record<string, string>) => any,
     upsertFn: (payload: any) => Promise<void>,
     batchSize = 100
-): Promise<{ rowsTotal: number; rowsProcessed: number }> {
+): Promise<{ rowsTotal: number; rowsProcessed: number; headers?: string[] }> {
     let rowsTotal = 0;
     let rowsProcessed = 0;
     let batch: any[] = [];
+    let headers: string[] | undefined;
 
     const parser = createReadStream(localPath, { encoding: 'latin1' }).pipe(
         parse({ delimiter: ',', columns: true, skip_empty_lines: true, trim: true, relax_column_count: true, bom: true })
     );
 
     for await (const record of parser as AsyncIterable<Record<string, string>>) {
+        // Capture headers from the first row for diagnostics
+        if (!headers) {
+            headers = Object.keys(record);
+            console.log('[SanMar] CSV headers:', headers.join(' | '));
+        }
+
         rowsTotal++;
         const payload = mapper(record);
         if (payload) batch.push(payload);
 
         if (batch.length >= batchSize) {
             const toFlush = batch.splice(0);
-            // Sequential writes — SQLite doesn't handle high-concurrency upserts well
             for (const p of toFlush) await upsertFn(p);
             rowsProcessed += toFlush.length;
         }
     }
 
-    // Flush remainder
     for (const p of batch) await upsertFn(p);
     rowsProcessed += batch.length;
 
-    return { rowsTotal, rowsProcessed };
+    return { rowsTotal, rowsProcessed, headers };
 }
 
 /* ─── Sync SDL_N catalog ─────────────────────────────────────────────────── */

@@ -361,6 +361,22 @@ export default function SanMarPage() {
         }, 5000); // check every 5 seconds
     }
 
+    /* ── Peek at CSV file headers ── */
+    const [peeking, setPeeking] = useState(false);
+    const [peekResult, setPeekResult] = useState<{ filename: string; lines: string[] } | null>(null);
+
+    async function peekFile(filename: string) {
+        setPeeking(true); setPeekResult(null);
+        try {
+            const r = await api(`/sanmar/sftp/peek?file=${encodeURIComponent(filename)}&lines=3`);
+            setPeekResult(r);
+        } catch (err: any) {
+            toast(err.message || "Peek failed", "error");
+        } finally {
+            setPeeking(false);
+        }
+    }
+
     /* ── Load style detail ── */
     async function openStyle(style: string) {
         setSelectedStyle(style);
@@ -446,10 +462,25 @@ export default function SanMarPage() {
                                     {status?.sftpHost ? `${status.sftpHost}:${status.sftpPort}` : "Configure SANMAR_SFTP_* in .env"}
                                 </p>
                             </div>
-                            <Button size="sm" variant="outline" loading={testingConn} onClick={testConnection}>
-                                Test Connection
-                            </Button>
+                            <div className="flex gap-2">
+                                <Button size="sm" variant="outline" loading={peeking} onClick={() => peekFile("SanMar_SDL_N.csv")}>
+                                    Peek SDL Headers
+                                </Button>
+                                <Button size="sm" variant="outline" loading={testingConn} onClick={testConnection}>
+                                    Test Connection
+                                </Button>
+                            </div>
                         </div>
+
+                        {peekResult && (
+                            <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}
+                                className="bg-slate-900 rounded-xl p-3 overflow-x-auto">
+                                <p className="text-xs text-slate-400 mb-1.5 font-medium">{peekResult.filename} — first {peekResult.lines.length} lines</p>
+                                {peekResult.lines.map((line, i) => (
+                                    <p key={i} className="font-mono text-xs text-green-400 whitespace-pre">{line}</p>
+                                ))}
+                            </motion.div>
+                        )}
 
                         {sftpFiles !== null && (
                             <motion.div initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}

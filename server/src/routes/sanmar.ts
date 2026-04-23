@@ -51,6 +51,22 @@ router.post('/sftp/test', async (_req, res) => {
     }
 });
 
+/* ─── Peek at first N lines of a remote file (diagnostic) ───────────────── */
+
+router.get('/sftp/peek', async (req, res) => {
+    const filename = req.query.file as string;
+    const lines    = Math.min(parseInt(req.query.lines as string ?? '5', 10), 20);
+    if (!filename) return res.status(400).json({ error: 'file query param required' });
+
+    try {
+        const { peekFile } = await import('../vendors/sanmar-sftp.js');
+        const text = await peekFile(filename, lines);
+        res.json({ filename, lines: text.split('\n') });
+    } catch (err: any) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
 /* ─── List SFTP files ─────────────────────────────────────────────────────── */
 
 router.get('/sftp/files', async (_req, res) => {

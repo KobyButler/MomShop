@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { api } from "@/app/lib/api";
 import { useToast } from "@/components/ui/toast";
 import { motion, AnimatePresence } from "framer-motion";
@@ -53,8 +53,10 @@ type Filters = {
     category: string;
     subcategory: string;
     brand: string;
-    colorName: string; // stores the COLOR_FAMILIES label (e.g. "Gray")
+    colorName: string;
     inStock: boolean;
+    size: string;
+    priceRange: string;
 };
 
 /* ─── Constants ───────────────────────────────────────────────────────────── */
@@ -81,7 +83,23 @@ const COLOR_FAMILIES = [
     { label: "Camo",   hex: "#4a5e2a", keywords: ["camo", "camouflage"] },
 ];
 
-const EMPTY_FILTERS: Filters = { q: "", category: "", subcategory: "", brand: "", colorName: "", inStock: false };
+const PRICE_RANGES = [
+    { label: "$0–$10",    key: "0-10"  },
+    { label: "$10–$20",   key: "10-20" },
+    { label: "$20–$30",   key: "20-30" },
+    { label: "$30–$40",   key: "30-40" },
+    { label: "$40–$50",   key: "40-50" },
+    { label: "$50–$75",   key: "50-75" },
+    { label: "$75–$100",  key: "75-100"},
+    { label: "$100+",     key: "100+"  },
+];
+
+const SIZE_ORDER = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL","OSFA"];
+
+const EMPTY_FILTERS: Filters = {
+    q: "", category: "", subcategory: "", brand: "",
+    colorName: "", inStock: false, size: "", priceRange: "",
+};
 
 /* ─── Helpers ─────────────────────────────────────────────────────────────── */
 
@@ -156,6 +174,40 @@ function colorHex(name: string): string {
     if (n.includes("storm"))                                      return "#64748b";
     if (n.includes("camo"))                                       return "#4a5e2a";
     return "#cbd5e1";
+}
+
+/* ─── FacetSection ────────────────────────────────────────────────────────── */
+
+function FacetSection({ title, expanded, onToggle, children }: {
+    title: string; expanded: boolean; onToggle: () => void; children: React.ReactNode;
+}) {
+    return (
+        <div className="border-b border-slate-100 last:border-0">
+            <button type="button" onClick={onToggle}
+                className="flex items-center justify-between w-full py-3 text-sm font-bold text-slate-700 hover:text-slate-900 transition-colors">
+                {title}
+                <svg className={`w-4 h-4 text-slate-400 transition-transform duration-200 ${expanded ? "" : "-rotate-90"}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+            <AnimatePresence initial={false}>
+                {expanded && (
+                    <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.18, ease: "easeInOut" }}
+                        className="overflow-hidden"
+                    >
+                        <div className="pb-3 space-y-0.5">
+                            {children}
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+        </div>
+    );
 }
 
 /* ─── Product Card ────────────────────────────────────────────────────────── */
@@ -346,11 +398,18 @@ export default function SanMarPage() {
     const [catLoading, setCatLoading] = useState(false);
     const [view, setView]         = useState<"grid" | "list">("grid");
     const [showHealth, setShowHealth] = useState(false);
-    const [showFlyout, setShowFlyout] = useState(false);
 
     const [filters, setFilters]   = useState<Filters>(EMPTY_FILTERS);
-    const flyoutRef                = useRef<HTMLDivElement>(null);
-    const searchTimer              = useRef<ReturnType<typeof setTimeout>>();
+    const searchTimer             = useRef<ReturnType<typeof setTimeout>>();
+
+    // Hover flyout for category nav
+    const [hoveredCat, setHoveredCat] = useState<string | null>(null);
+    const hideTimer = useRef<ReturnType<typeof setTimeout>>();
+
+    // Which facet sections are expanded
+    const [expandedFacets, setExpandedFacets] = useState<Record<string, boolean>>({
+        category: true, brand: false, color: false, size: false, price: false,
+    });
 
     // Panel
     const [panelStyle, setPanelStyle]       = useState<string | null>(null);
@@ -375,18 +434,6 @@ export default function SanMarPage() {
         api("/collections").then((c: any) => setCollections(Array.isArray(c) ? c : c?.data ?? [])).catch(console.error);
     }, []);
 
-    /* ── Close flyout on outside click ── */
-    useEffect(() => {
-        if (!showFlyout) return;
-        const handler = (e: MouseEvent) => {
-            if (flyoutRef.current && !flyoutRef.current.contains(e.target as Node)) {
-                setShowFlyout(false);
-            }
-        };
-        document.addEventListener("mousedown", handler);
-        return () => document.removeEventListener("mousedown", handler);
-    }, [showFlyout]);
-
     /* ── Load catalog ── */
     const loadCatalog = useCallback(() => {
         setCatLoading(true);
@@ -396,7 +443,16 @@ export default function SanMarPage() {
         if (filters.subcategory) p.set("subcategory", filters.subcategory);
         if (filters.brand)       p.set("brand",       filters.brand);
         if (filters.inStock)     p.set("inStock",     "true");
-        // Translate color family label → primary search keyword
+        if (filters.size)        p.set("size",        filters.size);
+        if (filters.priceRange) {
+            if (filters.priceRange.endsWith("+")) {
+                p.set("priceMin", String(parseInt(filters.priceRange) * 100));
+            } else {
+                const [lo, hi] = filters.priceRange.split("-");
+                if (lo) p.set("priceMin", String(parseInt(lo) * 100));
+                if (hi) p.set("priceMax", String(parseInt(hi) * 100));
+            }
+        }
         if (filters.colorName) {
             const family = COLOR_FAMILIES.find(f => f.label === filters.colorName);
             p.set("colorName", family ? family.keywords[0] : filters.colorName);
@@ -417,22 +473,55 @@ export default function SanMarPage() {
     function clearAll() {
         setFilters(EMPTY_FILTERS);
         setCatPage(1);
-        setShowFlyout(false);
     }
 
-    function selectCategory(cat: string) {
-        if (filters.category === cat) {
-            setShowFlyout(f => !f);
+    function toggleFacet(key: string) {
+        setExpandedFacets(f => ({ ...f, [key]: !f[key] }));
+    }
+
+    function handleCatHover(cat: string | null) {
+        clearTimeout(hideTimer.current);
+        if (cat) {
+            setHoveredCat(cat);
         } else {
-            setFilters(f => ({ ...f, category: cat, subcategory: "" }));
-            setCatPage(1);
-            setShowFlyout(true);
+            hideTimer.current = setTimeout(() => setHoveredCat(null), 120);
         }
     }
 
+    /* ── Derived ── */
+    const availableSizes = useMemo(() => {
+        const seen = new Set<string>();
+        catalog.forEach(r => { if (r.sizeName) seen.add(r.sizeName); });
+        return Array.from(seen).sort((a, b) => {
+            const ai = SIZE_ORDER.indexOf(a), bi = SIZE_ORDER.indexOf(b);
+            if (ai >= 0 && bi >= 0) return ai - bi;
+            if (ai >= 0) return -1;
+            if (bi >= 0) return 1;
+            return a.localeCompare(b);
+        });
+    }, [catalog]);
+
     const activeFilterCount = [
-        filters.category, filters.subcategory, filters.brand, filters.colorName, filters.inStock ? "instock" : ""
+        filters.category, filters.subcategory, filters.brand, filters.colorName,
+        filters.inStock ? "instock" : "", filters.size, filters.priceRange,
     ].filter(Boolean).length;
+
+    const activeFamilyHex = filters.colorName
+        ? COLOR_FAMILIES.find(f => f.label === filters.colorName)?.hex
+        : undefined;
+
+    const styleCards  = groupToStyleCards(catalog);
+    const totalPages  = Math.ceil(catTotal / 200);
+    const lastSDL     = status?.lastSync["CATALOG_SDL"];
+    const lastEPDD    = status?.lastSync["CATALOG_EPDD"];
+    const lastDIP     = status?.lastSync["INVENTORY_DIP"];
+
+    // Subcategories for the current category (used in filter facets)
+    const currentSubcats = filters.category
+        ? catMeta.subcategories
+            .filter(s => s.category.toLowerCase() === filters.category.toLowerCase())
+            .map(s => s.subcategory)
+        : [];
 
     /* ── Panel ── */
     async function openProduct(style: string) {
@@ -506,23 +595,6 @@ export default function SanMarPage() {
         } finally { setImporting(false); }
     }
 
-    /* ── Derived ── */
-    const styleCards  = groupToStyleCards(catalog);
-    const totalPages  = Math.ceil(catTotal / 200);
-    const lastSDL     = status?.lastSync["CATALOG_SDL"];
-    const lastEPDD    = status?.lastSync["CATALOG_EPDD"];
-    const lastDIP     = status?.lastSync["INVENTORY_DIP"];
-
-    const visibleSubcats = filters.category
-        ? catMeta.subcategories
-            .filter(s => s.category.toLowerCase() === filters.category.toLowerCase())
-            .map(s => s.subcategory)
-        : [];
-
-    const activeFamilyHex = filters.colorName
-        ? COLOR_FAMILIES.find(f => f.label === filters.colorName)?.hex
-        : undefined;
-
     /* ─────────────────────────────────────────────────────────────────── */
 
     return (
@@ -592,13 +664,13 @@ export default function SanMarPage() {
                     )}
                 </div>
                 <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
-                    <button type="button" aria-label="Grid view" title="Grid view" onClick={() => setView("grid")}
+                    <button type="button" aria-label="Grid view" onClick={() => setView("grid")}
                         className={`px-2.5 py-1.5 rounded-lg transition-all ${view === "grid" ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
                             <path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3A1.5 1.5 0 0115 10.5v3A1.5 1.5 0 0113.5 15h-3A1.5 1.5 0 019 13.5v-3z" />
                         </svg>
                     </button>
-                    <button type="button" aria-label="List view" title="List view" onClick={() => setView("list")}
+                    <button type="button" aria-label="List view" onClick={() => setView("list")}
                         className={`px-2.5 py-1.5 rounded-lg transition-all ${view === "list" ? "bg-white shadow text-slate-900" : "text-slate-500 hover:text-slate-700"}`}>
                         <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16">
                             <path fillRule="evenodd" d="M2.5 12a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5zm0-4a.5.5 0 01.5-.5h10a.5.5 0 010 1H3a.5.5 0 01-.5-.5z" />
@@ -607,267 +679,355 @@ export default function SanMarPage() {
                 </div>
             </div>
 
-            {/* ── Category nav + mega flyout ───────────────────────────────── */}
-            <div className="relative" ref={flyoutRef}>
+            {/* ── Two-column layout ────────────────────────────────────────── */}
+            <div className="flex gap-6 items-start">
 
-                {/* Category scroll row */}
-                <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-slate-100"
-                    style={{ scrollbarWidth: "none" }}>
-                    {/* All Products */}
-                    <button type="button" onClick={clearAll}
-                        className={`shrink-0 px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
-                            !filters.category
-                                ? "bg-slate-900 text-white shadow-sm"
-                                : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
-                        }`}>
-                        All Products
-                    </button>
+                {/* ── LEFT SIDEBAR ── */}
+                <div className="w-56 shrink-0 sticky top-4 space-y-3">
 
-                    {catMeta.categories.map(cat => (
-                        <button key={cat} type="button" onClick={() => selectCategory(cat)}
-                            className={`shrink-0 flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-semibold transition-all whitespace-nowrap ${
-                                filters.category === cat
-                                    ? "bg-violet-600 text-white shadow-sm"
-                                    : "text-slate-500 hover:text-slate-800 hover:bg-slate-100"
-                            }`}>
-                            {cat}
-                            {filters.category === cat && (
-                                <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${showFlyout ? "rotate-180" : ""}`}
-                                    fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                    {/* SanMar-style category nav */}
+                    <div className="relative" onMouseLeave={() => handleCatHover(null)}>
+                        <div className="bg-white rounded-2xl ring-1 ring-black/5 overflow-hidden">
+                            {/* All Products */}
+                            <button type="button" onClick={clearAll}
+                                className={`flex items-center gap-2 w-full px-4 py-3 text-sm font-bold border-b transition-colors ${
+                                    !filters.category
+                                        ? "bg-violet-50 text-violet-700 border-violet-100"
+                                        : "text-slate-600 hover:bg-slate-50 border-slate-50"
+                                }`}>
+                                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                                 </svg>
+                                All Products
+                            </button>
+
+                            {/* Category items */}
+                            {catMeta.categories.map(cat => {
+                                const subs = catMeta.subcategories.filter(s => s.category === cat);
+                                const isActive = filters.category === cat;
+                                return (
+                                    <button key={cat} type="button"
+                                        onMouseEnter={() => handleCatHover(cat)}
+                                        onClick={() => {
+                                            setFilters(f => ({ ...f, category: cat, subcategory: "" }));
+                                            setCatPage(1);
+                                        }}
+                                        className={`flex items-center justify-between w-full px-4 py-2.5 text-sm transition-colors border-b border-slate-50 last:border-0 ${
+                                            isActive
+                                                ? "bg-violet-50 text-violet-700 font-bold"
+                                                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                        }`}>
+                                        <span>{cat}</span>
+                                        {subs.length > 0 && (
+                                            <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        {/* Hover flyout — subcategory panel to the right */}
+                        <AnimatePresence>
+                            {hoveredCat && (
+                                <motion.div
+                                    initial={{ opacity: 0, x: -4 }}
+                                    animate={{ opacity: 1, x: 0 }}
+                                    exit={{ opacity: 0, x: -4 }}
+                                    transition={{ duration: 0.12, ease: "easeOut" }}
+                                    className="absolute left-full top-0 ml-2 w-52 bg-white rounded-2xl shadow-2xl border border-slate-100 z-30 overflow-hidden"
+                                    onMouseEnter={() => handleCatHover(hoveredCat)}
+                                    onMouseLeave={() => handleCatHover(null)}
+                                >
+                                    {/* Flyout header */}
+                                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
+                                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{hoveredCat}</p>
+                                    </div>
+
+                                    {/* All + subcategories */}
+                                    <div className="py-1.5 max-h-72 overflow-y-auto">
+                                        <button type="button"
+                                            onClick={() => {
+                                                setFilters(f => ({ ...f, category: hoveredCat, subcategory: "" }));
+                                                setCatPage(1);
+                                                setHoveredCat(null);
+                                            }}
+                                            className={`flex items-center w-full px-4 py-2 text-sm font-semibold transition-colors ${
+                                                filters.category === hoveredCat && !filters.subcategory
+                                                    ? "bg-violet-50 text-violet-700"
+                                                    : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                                            }`}>
+                                            All {hoveredCat}
+                                        </button>
+                                        {catMeta.subcategories
+                                            .filter(s => s.category === hoveredCat)
+                                            .map(s => (
+                                                <button key={s.subcategory} type="button"
+                                                    onClick={() => {
+                                                        setFilters(f => ({ ...f, category: hoveredCat, subcategory: s.subcategory }));
+                                                        setCatPage(1);
+                                                        setHoveredCat(null);
+                                                    }}
+                                                    className={`flex items-center w-full px-4 py-2 text-sm transition-colors ${
+                                                        filters.category === hoveredCat && filters.subcategory === s.subcategory
+                                                            ? "bg-violet-50 text-violet-700 font-semibold"
+                                                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                                    }`}>
+                                                    {s.subcategory}
+                                                </button>
+                                            ))
+                                        }
+                                    </div>
+                                </motion.div>
                             )}
-                        </button>
-                    ))}
-                </div>
+                        </AnimatePresence>
+                    </div>
 
-                {/* Mega flyout dropdown */}
-                <AnimatePresence>
-                    {showFlyout && filters.category && (
-                        <motion.div
-                            initial={{ opacity: 0, y: -6 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -6 }}
-                            transition={{ duration: 0.14, ease: "easeOut" }}
-                            className="absolute left-0 right-0 top-full mt-1 bg-white rounded-2xl shadow-2xl border border-slate-100 z-30 overflow-hidden"
-                        >
-                            {/* Flyout header */}
-                            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
-                                <h3 className="font-bold text-slate-800">{filters.category}</h3>
-                                <button type="button" aria-label="Close" onClick={() => setShowFlyout(false)}
-                                    className="w-7 h-7 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors">
-                                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                    </svg>
+                    {/* ── Filter facets (when a category is selected) ── */}
+                    {filters.category && (
+                        <div className="bg-white rounded-2xl ring-1 ring-black/5 px-4 overflow-hidden">
+                            {/* Category / Subcategory */}
+                            <FacetSection title="Category" expanded={expandedFacets.category} onToggle={() => toggleFacet("category")}>
+                                <button type="button"
+                                    onClick={() => setFilter("subcategory", "")}
+                                    className={`flex items-center justify-between w-full py-1.5 text-sm transition-colors rounded-lg px-2 ${
+                                        !filters.subcategory ? "text-violet-700 font-bold" : "text-slate-600 hover:text-slate-900"
+                                    }`}>
+                                    <span>All {filters.category}</span>
+                                    {!filters.subcategory && (
+                                        <svg className="w-3.5 h-3.5 text-violet-500" fill="currentColor" viewBox="0 0 20 20">
+                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                        </svg>
+                                    )}
                                 </button>
-                            </div>
+                                {currentSubcats.map(sub => (
+                                    <button key={sub} type="button"
+                                        onClick={() => setFilter("subcategory", filters.subcategory === sub ? "" : sub)}
+                                        className={`flex items-center justify-between w-full py-1.5 text-sm transition-colors rounded-lg px-2 ${
+                                            filters.subcategory === sub
+                                                ? "text-violet-700 font-semibold"
+                                                : "text-slate-600 hover:text-slate-900"
+                                        }`}>
+                                        <span>{sub}</span>
+                                        {filters.subcategory === sub && (
+                                            <svg className="w-3.5 h-3.5 text-violet-500" fill="currentColor" viewBox="0 0 20 20">
+                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                            </svg>
+                                        )}
+                                    </button>
+                                ))}
+                            </FacetSection>
 
-                            {/* Flyout columns */}
-                            <div className="flex divide-x divide-slate-100">
+                            {/* Brand */}
+                            {catMeta.brands.length > 0 && (
+                                <FacetSection title="Brand" expanded={expandedFacets.brand} onToggle={() => toggleFacet("brand")}>
+                                    {catMeta.brands.map(brand => (
+                                        <label key={brand}
+                                            className="flex items-center gap-2.5 py-1 cursor-pointer text-sm text-slate-600 hover:text-slate-900 transition-colors">
+                                            <input type="checkbox"
+                                                checked={filters.brand === brand}
+                                                onChange={() => setFilter("brand", filters.brand === brand ? "" : brand)}
+                                                className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 focus:ring-offset-0 cursor-pointer" />
+                                            {brand}
+                                        </label>
+                                    ))}
+                                </FacetSection>
+                            )}
 
-                                {/* Subcategories */}
-                                {visibleSubcats.length > 0 && (
-                                    <div className="p-5 min-w-[180px] max-h-72 overflow-y-auto shrink-0">
-                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Subcategory</p>
-                                        <div className="space-y-0.5">
-                                            <button type="button"
-                                                onClick={() => { setFilter("subcategory", ""); setShowFlyout(false); }}
-                                                className={`block w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                    !filters.subcategory
-                                                        ? "font-bold text-violet-700 bg-violet-50"
-                                                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                            {/* Color */}
+                            <FacetSection title="Color" expanded={expandedFacets.color} onToggle={() => toggleFacet("color")}>
+                                {COLOR_FAMILIES.map(fam => {
+                                    const isLight = fam.hex === "#f3f4f6" || fam.hex === "#f9fafb";
+                                    return (
+                                        <label key={fam.label}
+                                            className="flex items-center gap-2.5 py-1 cursor-pointer text-sm text-slate-600 hover:text-slate-900 transition-colors">
+                                            <input type="checkbox"
+                                                checked={filters.colorName === fam.label}
+                                                onChange={() => setFilter("colorName", filters.colorName === fam.label ? "" : fam.label)}
+                                                className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 focus:ring-offset-0 cursor-pointer" />
+                                            <div className={`w-4 h-4 rounded-full shrink-0 shadow-sm ${isLight ? "ring-1 ring-slate-200" : ""}`}
+                                                style={{ backgroundColor: fam.hex }} />
+                                            {fam.label}
+                                        </label>
+                                    );
+                                })}
+                            </FacetSection>
+
+                            {/* Size */}
+                            {availableSizes.length > 0 && (
+                                <FacetSection title="Size" expanded={expandedFacets.size} onToggle={() => toggleFacet("size")}>
+                                    <div className="flex flex-wrap gap-1.5 pt-0.5">
+                                        {availableSizes.map(size => (
+                                            <button key={size} type="button"
+                                                onClick={() => setFilter("size", filters.size === size ? "" : size)}
+                                                className={`px-2.5 py-1 text-xs font-semibold rounded-lg border-2 transition-all ${
+                                                    filters.size === size
+                                                        ? "border-violet-600 bg-violet-50 text-violet-700"
+                                                        : "border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900"
                                                 }`}>
-                                                All {filters.category}
+                                                {size}
                                             </button>
-                                            {visibleSubcats.map(sub => (
-                                                <button key={sub} type="button"
-                                                    onClick={() => { setFilter("subcategory", sub); setShowFlyout(false); }}
-                                                    className={`block w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                        filters.subcategory === sub
-                                                            ? "font-bold text-violet-700 bg-violet-50"
-                                                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                                                    }`}>
-                                                    {sub}
-                                                </button>
-                                            ))}
-                                        </div>
+                                        ))}
                                     </div>
-                                )}
+                                </FacetSection>
+                            )}
 
-                                {/* Browse By Color */}
-                                <div className="p-5 flex-1">
-                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Browse By Color</p>
-                                    <div className="grid grid-cols-2 gap-x-8 gap-y-1 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-                                        {COLOR_FAMILIES.map(fam => {
-                                            const isLight = fam.hex === "#f3f4f6" || fam.hex === "#f9fafb";
-                                            const isActive = filters.colorName === fam.label;
-                                            return (
-                                                <button key={fam.label} type="button"
-                                                    onClick={() => { setFilter("colorName", isActive ? "" : fam.label); setShowFlyout(false); }}
-                                                    className={`flex items-center gap-2.5 py-1.5 px-2.5 rounded-lg transition-colors text-left ${
-                                                        isActive ? "bg-violet-50" : "hover:bg-slate-50"
-                                                    }`}>
-                                                    <div
-                                                        className={`w-5 h-5 rounded-full shrink-0 shadow-sm ${isLight ? "ring-1 ring-slate-200" : ""} ${isActive ? "ring-2 ring-violet-500 ring-offset-1" : ""}`}
-                                                        style={{ backgroundColor: fam.hex }}
-                                                    />
-                                                    <span className={`text-sm whitespace-nowrap ${isActive ? "font-bold text-violet-700" : "text-slate-600"}`}>
-                                                        {fam.label}
-                                                    </span>
-                                                </button>
-                                            );
-                                        })}
-                                    </div>
-                                </div>
+                            {/* Price */}
+                            <FacetSection title="Price" expanded={expandedFacets.price} onToggle={() => toggleFacet("price")}>
+                                {PRICE_RANGES.map(range => (
+                                    <label key={range.key}
+                                        className="flex items-center gap-2.5 py-1 cursor-pointer text-sm text-slate-600 hover:text-slate-900 transition-colors">
+                                        <input type="checkbox"
+                                            checked={filters.priceRange === range.key}
+                                            onChange={() => setFilter("priceRange", filters.priceRange === range.key ? "" : range.key)}
+                                            className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 focus:ring-offset-0 cursor-pointer" />
+                                        {range.label}
+                                    </label>
+                                ))}
+                            </FacetSection>
 
-                                {/* Brand */}
-                                {catMeta.brands.length > 0 && (
-                                    <div className="p-5 min-w-[150px] max-h-72 overflow-y-auto shrink-0">
-                                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3">Brand</p>
-                                        <div className="space-y-0.5">
-                                            {catMeta.brands.map(brand => (
-                                                <button key={brand} type="button"
-                                                    onClick={() => { setFilter("brand", brand); setShowFlyout(false); }}
-                                                    className={`block w-full text-left px-3 py-2 text-sm rounded-lg transition-colors ${
-                                                        filters.brand === brand
-                                                            ? "font-bold text-violet-700 bg-violet-50"
-                                                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                                                    }`}>
-                                                    {brand}
-                                                </button>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* Flyout footer */}
-                            <div className="flex items-center justify-between px-6 py-3 border-t border-slate-100 bg-slate-50/50">
+                            {/* In Stock */}
+                            <div className="py-3.5 border-t border-slate-100">
                                 <button type="button"
                                     onClick={() => setFilter("inStock", !filters.inStock)}
-                                    className="flex items-center gap-2.5 text-sm font-medium text-slate-600 hover:text-slate-900 transition-colors">
-                                    <div className={`relative rounded-full transition-colors shrink-0`}
-                                        style={{ width: 32, height: 18, backgroundColor: filters.inStock ? "#7c3aed" : "#d1d5db" }}>
+                                    className="flex items-center gap-3 w-full text-sm font-semibold text-slate-700 hover:text-slate-900 transition-colors">
+                                    <div className="relative shrink-0" style={{ width: 32, height: 18 }}>
+                                        <div className="absolute inset-0 rounded-full transition-colors duration-200"
+                                            style={{ backgroundColor: filters.inStock ? "#7c3aed" : "#d1d5db" }} />
                                         <div className={`absolute top-[3px] w-3 h-3 bg-white rounded-full shadow transition-all duration-200 ${filters.inStock ? "left-[17px]" : "left-[3px]"}`} />
                                     </div>
-                                    In stock only
+                                    In Stock Only
                                 </button>
-                                {activeFilterCount > 0 && (
-                                    <button type="button" onClick={clearAll}
-                                        className="text-xs font-semibold text-slate-400 hover:text-slate-700 transition-colors">
-                                        Clear all filters
-                                    </button>
-                                )}
                             </div>
-                        </motion.div>
-                    )}
-                </AnimatePresence>
-            </div>
 
-            {/* ── Active filter chips ──────────────────────────────────────── */}
-            {activeFilterCount > 0 && (
-                <div className="flex items-center gap-2 flex-wrap">
-                    {filters.category && (
-                        <FilterChip label={filters.category} onRemove={() => {
-                            setFilters(f => ({ ...f, category: "", subcategory: "" }));
-                            setCatPage(1);
-                            setShowFlyout(false);
-                        }} />
+                            {/* Clear filters */}
+                            {activeFilterCount > 0 && (
+                                <div className="pb-3.5">
+                                    <button type="button" onClick={clearAll}
+                                        className="w-full py-2 text-xs font-bold text-slate-400 hover:text-slate-700 border border-slate-200 rounded-xl transition-colors hover:border-slate-300">
+                                        Clear All Filters
+                                    </button>
+                                </div>
+                            )}
+                        </div>
                     )}
-                    {filters.subcategory && (
-                        <FilterChip label={filters.subcategory} onRemove={() => setFilter("subcategory", "")} />
-                    )}
-                    {filters.brand && (
-                        <FilterChip label={filters.brand} onRemove={() => setFilter("brand", "")} />
-                    )}
-                    {filters.colorName && (
-                        <FilterChip
-                            label={filters.colorName}
-                            color={activeFamilyHex}
-                            onRemove={() => setFilter("colorName", "")}
-                        />
-                    )}
-                    {filters.inStock && (
-                        <span className="flex items-center gap-1.5 bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1.5 rounded-full">
-                            In Stock Only
-                            <button type="button" aria-label="Remove in-stock filter"
-                                onClick={() => setFilter("inStock", false)}
-                                className="hover:text-emerald-900 ml-0.5">
-                                <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-                                </svg>
-                            </button>
-                        </span>
-                    )}
-                    <button type="button" onClick={clearAll}
-                        className="text-xs text-slate-400 hover:text-slate-700 font-semibold underline underline-offset-2 transition-colors">
-                        Clear all
-                    </button>
                 </div>
-            )}
 
-            {/* ── Result count ─────────────────────────────────────────────── */}
-            <p className="text-sm text-slate-500 tabular-nums">
-                {catLoading ? "Loading…" : `${catTotal.toLocaleString()} variants · ${styleCards.length} styles shown`}
-            </p>
+                {/* ── RIGHT CONTENT ── */}
+                <div className="flex-1 min-w-0 space-y-4">
 
-            {/* ── Product grid / list ──────────────────────────────────────── */}
-            {catLoading ? (
-                <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                    {Array.from({ length: 12 }).map((_, i) => (
-                        <div key={i} className="animate-pulse bg-slate-100 rounded-3xl aspect-[4/5]" />
-                    ))}
-                </div>
-            ) : styleCards.length === 0 ? (
-                <div className="flex flex-col items-center py-24 gap-4">
-                    <div className="w-16 h-16 rounded-2xl bg-violet-50 flex items-center justify-center">
-                        <svg className="w-8 h-8 text-violet-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                        </svg>
-                    </div>
-                    <div className="text-center">
-                        <p className="font-bold text-slate-500 text-lg">
-                            {catTotal === 0 ? "Catalog is empty" : "No results"}
-                        </p>
-                        <p className="text-sm text-slate-400 mt-1">
-                            {catTotal === 0 ? "Use Catalog Health below to load products" : "Try a different filter or search term"}
-                        </p>
-                    </div>
+                    {/* Active filter chips */}
                     {activeFilterCount > 0 && (
-                        <button type="button" onClick={clearAll}
-                            className="px-4 py-2 text-sm font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors">
-                            Clear Filters
-                        </button>
+                        <div className="flex items-center gap-2 flex-wrap">
+                            {filters.category && (
+                                <FilterChip label={filters.category} onRemove={() => {
+                                    setFilters(f => ({ ...f, category: "", subcategory: "" }));
+                                    setCatPage(1);
+                                }} />
+                            )}
+                            {filters.subcategory && (
+                                <FilterChip label={filters.subcategory} onRemove={() => setFilter("subcategory", "")} />
+                            )}
+                            {filters.brand && (
+                                <FilterChip label={filters.brand} onRemove={() => setFilter("brand", "")} />
+                            )}
+                            {filters.colorName && (
+                                <FilterChip label={filters.colorName} color={activeFamilyHex}
+                                    onRemove={() => setFilter("colorName", "")} />
+                            )}
+                            {filters.size && (
+                                <FilterChip label={`Size: ${filters.size}`} onRemove={() => setFilter("size", "")} />
+                            )}
+                            {filters.priceRange && (
+                                <FilterChip
+                                    label={PRICE_RANGES.find(r => r.key === filters.priceRange)?.label ?? filters.priceRange}
+                                    onRemove={() => setFilter("priceRange", "")}
+                                />
+                            )}
+                            {filters.inStock && (
+                                <span className="flex items-center gap-1.5 bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1.5 rounded-full">
+                                    In Stock Only
+                                    <button type="button" aria-label="Remove in-stock filter"
+                                        onClick={() => setFilter("inStock", false)}
+                                        className="hover:text-emerald-900 ml-0.5">
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                                        </svg>
+                                    </button>
+                                </span>
+                            )}
+                            <button type="button" onClick={clearAll}
+                                className="text-xs text-slate-400 hover:text-slate-700 font-semibold underline underline-offset-2 transition-colors">
+                                Clear all
+                            </button>
+                        </div>
+                    )}
+
+                    {/* Result count */}
+                    <p className="text-sm text-slate-500 tabular-nums">
+                        {catLoading ? "Loading…" : `${catTotal.toLocaleString()} variants · ${styleCards.length} styles shown`}
+                    </p>
+
+                    {/* Product grid / list */}
+                    {catLoading ? (
+                        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                            {Array.from({ length: 12 }).map((_, i) => (
+                                <div key={i} className="animate-pulse bg-slate-100 rounded-3xl aspect-[4/5]" />
+                            ))}
+                        </div>
+                    ) : styleCards.length === 0 ? (
+                        <div className="flex flex-col items-center py-24 gap-4">
+                            <div className="w-16 h-16 rounded-2xl bg-violet-50 flex items-center justify-center">
+                                <svg className="w-8 h-8 text-violet-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                                </svg>
+                            </div>
+                            <div className="text-center">
+                                <p className="font-bold text-slate-500 text-lg">
+                                    {catTotal === 0 ? "Catalog is empty" : "No results"}
+                                </p>
+                                <p className="text-sm text-slate-400 mt-1">
+                                    {catTotal === 0 ? "Use Catalog Health below to load products" : "Try a different filter or search term"}
+                                </p>
+                            </div>
+                            {activeFilterCount > 0 && (
+                                <button type="button" onClick={clearAll}
+                                    className="px-4 py-2 text-sm font-bold text-violet-600 bg-violet-50 hover:bg-violet-100 rounded-xl transition-colors">
+                                    Clear Filters
+                                </button>
+                            )}
+                        </div>
+                    ) : view === "grid" ? (
+                        <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                            {styleCards.map((card, i) => (
+                                <ProductCard key={card.style} card={card} index={i} onClick={() => openProduct(card.style)} />
+                            ))}
+                        </div>
+                    ) : (
+                        <div className="bg-white rounded-3xl ring-1 ring-black/5 shadow-sm overflow-hidden">
+                            {styleCards.map((card, i) => (
+                                <ListRow key={card.style} card={card} index={i} onClick={() => openProduct(card.style)} />
+                            ))}
+                        </div>
+                    )}
+
+                    {/* Pagination */}
+                    {totalPages > 1 && (
+                        <div className="flex items-center justify-center gap-3 pt-2">
+                            <button type="button" disabled={catPage <= 1} onClick={() => setCatPage(p => p - 1)}
+                                className="px-5 py-2.5 text-sm font-bold rounded-xl border border-slate-200 bg-white hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                ← Previous
+                            </button>
+                            <span className="text-sm text-slate-500 tabular-nums">Page {catPage} of {totalPages}</span>
+                            <button type="button" disabled={catPage >= totalPages} onClick={() => setCatPage(p => p + 1)}
+                                className="px-5 py-2.5 text-sm font-bold rounded-xl border border-slate-200 bg-white hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all">
+                                Next →
+                            </button>
+                        </div>
                     )}
                 </div>
-            ) : view === "grid" ? (
-                <div className="grid gap-4 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                    {styleCards.map((card, i) => (
-                        <ProductCard key={card.style} card={card} index={i} onClick={() => openProduct(card.style)} />
-                    ))}
-                </div>
-            ) : (
-                <div className="bg-white rounded-3xl ring-1 ring-black/5 shadow-sm overflow-hidden">
-                    {styleCards.map((card, i) => (
-                        <ListRow key={card.style} card={card} index={i} onClick={() => openProduct(card.style)} />
-                    ))}
-                </div>
-            )}
-
-            {/* Pagination */}
-            {totalPages > 1 && (
-                <div className="flex items-center justify-center gap-3 pt-2">
-                    <button type="button" disabled={catPage <= 1} onClick={() => setCatPage(p => p - 1)}
-                        className="px-5 py-2.5 text-sm font-bold rounded-xl border border-slate-200 bg-white hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                        ← Previous
-                    </button>
-                    <span className="text-sm text-slate-500 tabular-nums">Page {catPage} of {totalPages}</span>
-                    <button type="button" disabled={catPage >= totalPages} onClick={() => setCatPage(p => p + 1)}
-                        className="px-5 py-2.5 text-sm font-bold rounded-xl border border-slate-200 bg-white hover:shadow-sm disabled:opacity-30 disabled:cursor-not-allowed transition-all">
-                        Next →
-                    </button>
-                </div>
-            )}
+            </div>
 
             {/* ── Catalog Health ───────────────────────────────────────────── */}
             <div className="border-t border-slate-100 pt-6">

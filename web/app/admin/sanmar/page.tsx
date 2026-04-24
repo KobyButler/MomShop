@@ -50,14 +50,71 @@ type Collection = { id: string; name: string };
 
 type Filters = {
     q: string;
-    category: string;
-    subcategory: string;
+    category: string;       // full semicolon path e.g. "Activewear;Bottoms"
+    subcategory: string;    // separate DB subcategory field
     brand: string;
     colorName: string;
     inStock: boolean;
     size: string;
     priceRange: string;
 };
+
+/** A node in the parsed category tree */
+type CatTreeNode = {
+    name: string;           // display name (last segment)
+    path: string;           // full semicolon path
+    children: CatTreeNode[];
+};
+
+/* ─── Category Tree Helpers ───────────────────────────────────────────────── */
+
+function buildCategoryTree(categories: string[]): CatTreeNode[] {
+    const nodeMap = new Map<string, CatTreeNode>();
+    const roots: CatTreeNode[] = [];
+
+    // Sort shallower paths before deeper so parents always exist when children are added
+    const sorted = [...categories]
+        .filter(Boolean)
+        .sort((a, b) => {
+            const da = a.split(";").length;
+            const db = b.split(";").length;
+            return da !== db ? da - db : a.localeCompare(b);
+        });
+
+    for (const cat of sorted) {
+        const parts = cat.split(";").map(s => s.trim()).filter(Boolean);
+        for (let i = 0; i < parts.length; i++) {
+            const path = parts.slice(0, i + 1).join(";");
+            if (!nodeMap.has(path)) {
+                const node: CatTreeNode = { name: parts[i], path, children: [] };
+                nodeMap.set(path, node);
+                if (i === 0) {
+                    roots.push(node);
+                } else {
+                    const parentPath = parts.slice(0, i).join(";");
+                    nodeMap.get(parentPath)?.children.push(node);
+                }
+            }
+        }
+    }
+
+    return roots;
+}
+
+function findCatNode(nodes: CatTreeNode[], path: string): CatTreeNode | null {
+    for (const node of nodes) {
+        if (node.path === path) return node;
+        if (path.startsWith(node.path + ";")) {
+            const found = findCatNode(node.children, path);
+            if (found) return found;
+        }
+    }
+    return null;
+}
+
+function formatCatPath(path: string): string {
+    return path.split(";").join(" › ");
+}
 
 /* ─── Constants ───────────────────────────────────────────────────────────── */
 
@@ -84,14 +141,14 @@ const COLOR_FAMILIES = [
 ];
 
 const PRICE_RANGES = [
-    { label: "$0–$10",    key: "0-10"  },
-    { label: "$10–$20",   key: "10-20" },
-    { label: "$20–$30",   key: "20-30" },
-    { label: "$30–$40",   key: "30-40" },
-    { label: "$40–$50",   key: "40-50" },
-    { label: "$50–$75",   key: "50-75" },
-    { label: "$75–$100",  key: "75-100"},
-    { label: "$100+",     key: "100+"  },
+    { label: "$0–$10",   key: "0-10"   },
+    { label: "$10–$20",  key: "10-20"  },
+    { label: "$20–$30",  key: "20-30"  },
+    { label: "$30–$40",  key: "30-40"  },
+    { label: "$40–$50",  key: "40-50"  },
+    { label: "$50–$75",  key: "50-75"  },
+    { label: "$75–$100", key: "75-100" },
+    { label: "$100+",    key: "100+"   },
 ];
 
 const SIZE_ORDER = ["XS","S","M","L","XL","2XL","3XL","4XL","5XL","6XL","YXS","YS","YM","YL","YXL","OSFA"];
@@ -108,9 +165,9 @@ const fmt = (cents: number) =>
 
 function timeAgo(d: string): string {
     const diff = Date.now() - new Date(d).getTime();
-    if (diff < 60_000)      return "just now";
-    if (diff < 3_600_000)   return `${Math.floor(diff / 60_000)}m ago`;
-    if (diff < 86_400_000)  return `${Math.floor(diff / 3_600_000)}h ago`;
+    if (diff < 60_000)     return "just now";
+    if (diff < 3_600_000)  return `${Math.floor(diff / 60_000)}m ago`;
+    if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}h ago`;
     return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
@@ -141,38 +198,38 @@ function groupToStyleCards(rows: CatalogRow[]): StyleCard[] {
 
 function colorHex(name: string): string {
     const n = name.toLowerCase();
-    if (n.includes("black"))                                      return "#111827";
+    if (n.includes("black"))                                       return "#111827";
     if (n.includes("white") || n.includes("natural") || n.includes("ivory") || n.includes("cream")) return "#f9fafb";
-    if (n.includes("navy") || n.includes("dark blue"))            return "#1e3a5f";
-    if (n.includes("royal") || n.includes("cobalt"))              return "#1d4ed8";
+    if (n.includes("navy") || n.includes("dark blue"))             return "#1e3a5f";
+    if (n.includes("royal") || n.includes("cobalt"))               return "#1d4ed8";
     if (n.includes("carolina") || n.includes("columbia") || n.includes("sky blue")) return "#7dd3fc";
     if (n.includes("light blue") || n.includes("baby blue") || n.includes("powder")) return "#bfdbfe";
-    if (n.includes("blue"))                                       return "#2563eb";
-    if (n.includes("denim"))                                      return "#4b6cb7";
-    if (n.includes("cardinal") || n.includes("garnet"))           return "#9b1c1c";
+    if (n.includes("blue"))                                        return "#2563eb";
+    if (n.includes("denim"))                                       return "#4b6cb7";
+    if (n.includes("cardinal") || n.includes("garnet"))            return "#9b1c1c";
     if (n.includes("maroon") || n.includes("wine") || n.includes("burgundy")) return "#7f1d1d";
-    if (n.includes("true red") || n.includes("bright red"))       return "#ef4444";
-    if (n.includes("red"))                                        return "#dc2626";
-    if (n.includes("forest"))                                     return "#14532d";
-    if (n.includes("kelly") || n.includes("lime"))                return "#16a34a";
-    if (n.includes("military") || n.includes("olive"))            return "#4d5e30";
-    if (n.includes("green"))                                      return "#15803d";
-    if (n.includes("athletic gold") || n.includes("vegas gold"))  return "#ca8a04";
-    if (n.includes("yellow") || n.includes("gold"))               return "#eab308";
-    if (n.includes("orange") || n.includes("tangerine"))          return "#f97316";
-    if (n.includes("purple") || n.includes("violet"))             return "#7c3aed";
-    if (n.includes("lavender"))                                   return "#c4b5fd";
-    if (n.includes("hot pink") || n.includes("neon pink"))        return "#f472b6";
-    if (n.includes("pink") || n.includes("azalea"))               return "#ec4899";
-    if (n.includes("heather"))                                    return "#9ca3af";
+    if (n.includes("true red") || n.includes("bright red"))        return "#ef4444";
+    if (n.includes("red"))                                         return "#dc2626";
+    if (n.includes("forest"))                                      return "#14532d";
+    if (n.includes("kelly") || n.includes("lime"))                 return "#16a34a";
+    if (n.includes("military") || n.includes("olive"))             return "#4d5e30";
+    if (n.includes("green"))                                       return "#15803d";
+    if (n.includes("athletic gold") || n.includes("vegas gold"))   return "#ca8a04";
+    if (n.includes("yellow") || n.includes("gold"))                return "#eab308";
+    if (n.includes("orange") || n.includes("tangerine"))           return "#f97316";
+    if (n.includes("purple") || n.includes("violet"))              return "#7c3aed";
+    if (n.includes("lavender"))                                    return "#c4b5fd";
+    if (n.includes("hot pink") || n.includes("neon pink"))         return "#f472b6";
+    if (n.includes("pink") || n.includes("azalea"))                return "#ec4899";
+    if (n.includes("heather"))                                     return "#9ca3af";
     if (n.includes("sport grey") || n.includes("ash") || n.includes("silver")) return "#d1d5db";
     if (n.includes("charcoal") || n.includes("dark grey") || n.includes("dark gray")) return "#374151";
-    if (n.includes("grey") || n.includes("gray"))                 return "#6b7280";
+    if (n.includes("grey") || n.includes("gray"))                  return "#6b7280";
     if (n.includes("tan") || n.includes("khaki") || n.includes("sand") || n.includes("desert")) return "#d4a96a";
     if (n.includes("brown") || n.includes("coffee") || n.includes("chocolate")) return "#78350f";
-    if (n.includes("teal") || n.includes("aqua"))                 return "#0d9488";
-    if (n.includes("storm"))                                      return "#64748b";
-    if (n.includes("camo"))                                       return "#4a5e2a";
+    if (n.includes("teal") || n.includes("aqua"))                  return "#0d9488";
+    if (n.includes("storm"))                                       return "#64748b";
+    if (n.includes("camo"))                                        return "#4a5e2a";
     return "#cbd5e1";
 }
 
@@ -197,12 +254,9 @@ function FacetSection({ title, expanded, onToggle, children }: {
                         initial={{ height: 0, opacity: 0 }}
                         animate={{ height: "auto", opacity: 1 }}
                         exit={{ height: 0, opacity: 0 }}
-                        transition={{ duration: 0.18, ease: "easeInOut" }}
-                        className="overflow-hidden"
-                    >
-                        <div className="pb-3 space-y-0.5">
-                            {children}
-                        </div>
+                        transition={{ duration: 0.15, ease: "easeInOut" }}
+                        className="overflow-hidden">
+                        <div className="pb-3">{children}</div>
                     </motion.div>
                 )}
             </AnimatePresence>
@@ -225,6 +279,7 @@ function ProductCard({ card, onClick, index }: { card: StyleCard; onClick: () =>
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: Math.min(index * 0.025, 0.25), duration: 0.2, ease: "easeOut" }}
             className="text-left bg-white rounded-3xl ring-1 ring-black/5 shadow-sm hover:shadow-xl hover:ring-violet-200/80 hover:-translate-y-1 transition-all duration-200 group overflow-hidden"
+            style={{ isolation: "isolate" }}
         >
             <div className="relative bg-gradient-to-br from-slate-50 to-slate-100 aspect-[4/5] overflow-hidden">
                 {hasImg ? (
@@ -402,29 +457,30 @@ export default function SanMarPage() {
     const [filters, setFilters]   = useState<Filters>(EMPTY_FILTERS);
     const searchTimer             = useRef<ReturnType<typeof setTimeout>>();
 
-    // Hover flyout for category nav
+    // Hover nav state
     const [hoveredCat, setHoveredCat] = useState<string | null>(null);
     const hideTimer = useRef<ReturnType<typeof setTimeout>>();
 
-    // Which facet sections are expanded
+    // Facet expand state
     const [expandedFacets, setExpandedFacets] = useState<Record<string, boolean>>({
-        category: true, brand: false, color: false, size: false, price: false,
+        category: true, brand: false, subcategory: false,
+        color: false, size: false, price: false,
     });
 
-    // Panel
+    // Panel state
     const [panelStyle, setPanelStyle]       = useState<string | null>(null);
     const [detail, setDetail]               = useState<StyleDetail | null>(null);
     const [detailLoading, setDetailLoading] = useState(false);
     const [selectedColor, setColor]         = useState<string | null>(null);
 
-    // Import
+    // Import state
     const [collections, setCollections]   = useState<Collection[]>([]);
     const [collectionId, setCollectionId] = useState("");
     const [priceVal, setPriceVal]         = useState("");
     const [importing, setImporting]       = useState(false);
     const [importDone, setImportDone]     = useState(false);
 
-    // Sync
+    // Sync state
     const [syncing, setSyncing] = useState<Record<string, boolean>>({});
 
     /* ── Boot ── */
@@ -433,6 +489,35 @@ export default function SanMarPage() {
         api("/sanmar/catalog/meta").then(setCatMeta).catch(() => {});
         api("/collections").then((c: any) => setCollections(Array.isArray(c) ? c : c?.data ?? [])).catch(console.error);
     }, []);
+
+    /* ── Derived category tree ── */
+    const categoryTree = useMemo(() => buildCategoryTree(catMeta.categories), [catMeta.categories]);
+
+    // The root node name of the active selection (first segment of path)
+    const activeRootName = filters.category ? filters.category.split(";")[0] : null;
+
+    // The selected node in the tree (for showing its children in facets)
+    const selectedNode = useMemo(() =>
+        filters.category ? findCatNode(categoryTree, filters.category) : null,
+        [categoryTree, filters.category]
+    );
+
+    // The hovered root node (for the flyout)
+    const hoveredNode = useMemo(() =>
+        hoveredCat ? findCatNode(categoryTree, hoveredCat) : null,
+        [categoryTree, hoveredCat]
+    );
+
+    // Subcategory field values relevant to the current category selection
+    const relevantSubcats = useMemo(() => {
+        if (!filters.category) return [];
+        const prefix = filters.category;
+        const vals = catMeta.subcategories
+            .filter(s => s.category === prefix || s.category.startsWith(prefix + ";"))
+            .map(s => s.subcategory)
+            .filter(Boolean);
+        return [...new Set(vals)].sort() as string[];
+    }, [catMeta.subcategories, filters.category]);
 
     /* ── Load catalog ── */
     const loadCatalog = useCallback(() => {
@@ -473,19 +558,31 @@ export default function SanMarPage() {
     function clearAll() {
         setFilters(EMPTY_FILTERS);
         setCatPage(1);
+        setHoveredCat(null);
     }
 
     function toggleFacet(key: string) {
         setExpandedFacets(f => ({ ...f, [key]: !f[key] }));
     }
 
-    function handleCatHover(cat: string | null) {
+    /* Navigate to a category path — clears subcategory field filter */
+    function selectCategoryPath(path: string) {
+        setFilters(f => ({ ...f, category: path, subcategory: "" }));
+        setCatPage(1);
+        setHoveredCat(null);
+    }
+
+    /* Hover handlers with delay so mouse can travel from nav to flyout */
+    function handleNavMouseEnter(path: string) {
         clearTimeout(hideTimer.current);
-        if (cat) {
-            setHoveredCat(cat);
-        } else {
-            hideTimer.current = setTimeout(() => setHoveredCat(null), 120);
-        }
+        setHoveredCat(path);
+    }
+    function handleNavMouseLeave() {
+        clearTimeout(hideTimer.current);
+        hideTimer.current = setTimeout(() => setHoveredCat(null), 150);
+    }
+    function handleFlyoutMouseEnter() {
+        clearTimeout(hideTimer.current);
     }
 
     /* ── Derived ── */
@@ -503,25 +600,18 @@ export default function SanMarPage() {
 
     const activeFilterCount = [
         filters.category, filters.subcategory, filters.brand, filters.colorName,
-        filters.inStock ? "instock" : "", filters.size, filters.priceRange,
+        filters.inStock ? "y" : "", filters.size, filters.priceRange,
     ].filter(Boolean).length;
 
     const activeFamilyHex = filters.colorName
         ? COLOR_FAMILIES.find(f => f.label === filters.colorName)?.hex
         : undefined;
 
-    const styleCards  = groupToStyleCards(catalog);
-    const totalPages  = Math.ceil(catTotal / 200);
-    const lastSDL     = status?.lastSync["CATALOG_SDL"];
-    const lastEPDD    = status?.lastSync["CATALOG_EPDD"];
-    const lastDIP     = status?.lastSync["INVENTORY_DIP"];
-
-    // Subcategories for the current category (used in filter facets)
-    const currentSubcats = filters.category
-        ? catMeta.subcategories
-            .filter(s => s.category.toLowerCase() === filters.category.toLowerCase())
-            .map(s => s.subcategory)
-        : [];
+    const styleCards = groupToStyleCards(catalog);
+    const totalPages = Math.ceil(catTotal / 200);
+    const lastSDL    = status?.lastSync["CATALOG_SDL"];
+    const lastEPDD   = status?.lastSync["CATALOG_EPDD"];
+    const lastDIP    = status?.lastSync["INVENTORY_DIP"];
 
     /* ── Panel ── */
     async function openProduct(style: string) {
@@ -542,9 +632,9 @@ export default function SanMarPage() {
     function closePanel() { setPanelStyle(null); setDetail(null); setImportDone(false); }
 
     useEffect(() => {
-        const handler = (e: KeyboardEvent) => { if (e.key === "Escape") closePanel(); };
-        window.addEventListener("keydown", handler);
-        return () => window.removeEventListener("keydown", handler);
+        const h = (e: KeyboardEvent) => { if (e.key === "Escape") closePanel(); };
+        window.addEventListener("keydown", h);
+        return () => window.removeEventListener("keydown", h);
     }, []);
 
     /* ── Sync ── */
@@ -595,7 +685,7 @@ export default function SanMarPage() {
         } finally { setImporting(false); }
     }
 
-    /* ─────────────────────────────────────────────────────────────────── */
+    /* ──────────────────────────────────────────────────────────────────────── */
 
     return (
         <div className="space-y-5 pb-16">
@@ -618,7 +708,7 @@ export default function SanMarPage() {
                         {[
                             { label: "Products",   val: status?.catalogCount != null ? (status.catalogCount >= 1000 ? `${(status.catalogCount / 1000).toFixed(0)}K` : `${status.catalogCount}`) : "—" },
                             { label: "Brands",     val: catMeta.brands.length     || "—" },
-                            { label: "Categories", val: catMeta.categories.length || "—" },
+                            { label: "Categories", val: categoryTree.length       || "—" },
                         ].map(s => (
                             <div key={s.label} className="bg-white/15 backdrop-blur-sm border border-white/20 rounded-2xl px-4 py-3 text-center min-w-[80px]">
                                 <p className="text-xl font-black tabular-nums">{s.val}</p>
@@ -682,44 +772,53 @@ export default function SanMarPage() {
             {/* ── Two-column layout ────────────────────────────────────────── */}
             <div className="flex gap-6 items-start">
 
-                {/* ── LEFT SIDEBAR ── */}
-                <div className="w-56 shrink-0 sticky top-4 space-y-3">
+                {/* ══ LEFT SIDEBAR ══
+                    z-30 ensures this stacking context renders above product cards
+                    that create their own stacking contexts via Framer Motion transforms */}
+                <div className="w-56 shrink-0 sticky top-4 space-y-3" style={{ zIndex: 30 }}>
 
-                    {/* SanMar-style category nav */}
-                    <div className="relative" onMouseLeave={() => handleCatHover(null)}>
-                        <div className="bg-white rounded-2xl ring-1 ring-black/5 overflow-hidden">
+                    {/* ── Category nav with hover flyout ── */}
+                    {/*
+                        The flyout is absolute-positioned to the right of this relative
+                        wrapper. Because it is a DOM child of the wrapper (not a child of
+                        the overflow-hidden card), it is NOT clipped.
+                        onMouseLeave on the wrapper fires only when the cursor leaves
+                        BOTH the category list AND the flyout panel.
+                    */}
+                    <div className="relative" onMouseLeave={handleNavMouseLeave}>
+
+                        {/* Category list card */}
+                        <div className="bg-white rounded-2xl ring-1 ring-black/5">
+
                             {/* All Products */}
                             <button type="button" onClick={clearAll}
-                                className={`flex items-center gap-2 w-full px-4 py-3 text-sm font-bold border-b transition-colors ${
+                                className={`flex items-center gap-2.5 w-full px-4 py-3 text-sm font-bold border-b transition-colors ${
                                     !filters.category
                                         ? "bg-violet-50 text-violet-700 border-violet-100"
-                                        : "text-slate-600 hover:bg-slate-50 border-slate-50"
+                                        : "text-slate-600 hover:bg-slate-50 border-slate-100"
                                 }`}>
-                                <svg className="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <svg className="w-4 h-4 shrink-0 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                     <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
                                 </svg>
                                 All Products
                             </button>
 
-                            {/* Category items */}
-                            {catMeta.categories.map(cat => {
-                                const subs = catMeta.subcategories.filter(s => s.category === cat);
-                                const isActive = filters.category === cat;
+                            {/* Top-level category nodes */}
+                            {categoryTree.map(rootNode => {
+                                const isActive = activeRootName === rootNode.name;
                                 return (
-                                    <button key={cat} type="button"
-                                        onMouseEnter={() => handleCatHover(cat)}
-                                        onClick={() => {
-                                            setFilters(f => ({ ...f, category: cat, subcategory: "" }));
-                                            setCatPage(1);
-                                        }}
+                                    <button key={rootNode.path} type="button"
+                                        onMouseEnter={() => handleNavMouseEnter(rootNode.path)}
+                                        onClick={() => selectCategoryPath(rootNode.path)}
                                         className={`flex items-center justify-between w-full px-4 py-2.5 text-sm transition-colors border-b border-slate-50 last:border-0 ${
                                             isActive
                                                 ? "bg-violet-50 text-violet-700 font-bold"
                                                 : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
                                         }`}>
-                                        <span>{cat}</span>
-                                        {subs.length > 0 && (
-                                            <svg className="w-4 h-4 text-slate-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                        <span>{rootNode.name}</span>
+                                        {rootNode.children.length > 0 && (
+                                            <svg className={`w-4 h-4 shrink-0 transition-colors ${isActive ? "text-violet-400" : "text-slate-300"}`}
+                                                fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                                             </svg>
                                         )}
@@ -728,98 +827,155 @@ export default function SanMarPage() {
                             })}
                         </div>
 
-                        {/* Hover flyout — subcategory panel to the right */}
+                        {/* ── Hover flyout — appears to the right ── */}
                         <AnimatePresence>
-                            {hoveredCat && (
+                            {hoveredNode && (
                                 <motion.div
-                                    initial={{ opacity: 0, x: -4 }}
+                                    key={hoveredNode.path}
+                                    initial={{ opacity: 0, x: -6 }}
                                     animate={{ opacity: 1, x: 0 }}
-                                    exit={{ opacity: 0, x: -4 }}
+                                    exit={{ opacity: 0, x: -6 }}
                                     transition={{ duration: 0.12, ease: "easeOut" }}
-                                    className="absolute left-full top-0 ml-2 w-52 bg-white rounded-2xl shadow-2xl border border-slate-100 z-30 overflow-hidden"
-                                    onMouseEnter={() => handleCatHover(hoveredCat)}
-                                    onMouseLeave={() => handleCatHover(null)}
+                                    className="absolute top-0 bg-white rounded-2xl shadow-2xl border border-slate-100 overflow-hidden"
+                                    style={{ left: "calc(100% + 8px)", width: 220, zIndex: 50 }}
+                                    onMouseEnter={handleFlyoutMouseEnter}
+                                    onMouseLeave={handleNavMouseLeave}
                                 >
                                     {/* Flyout header */}
-                                    <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/60">
-                                        <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{hoveredCat}</p>
+                                    <div className="px-4 py-3 bg-slate-50 border-b border-slate-100">
+                                        <p className="text-[11px] font-black text-slate-400 uppercase tracking-widest">
+                                            {hoveredNode.name}
+                                        </p>
                                     </div>
 
-                                    {/* All + subcategories */}
-                                    <div className="py-1.5 max-h-72 overflow-y-auto">
+                                    {/* "All [Category]" + children */}
+                                    <div className="py-1.5 max-h-80 overflow-y-auto">
                                         <button type="button"
-                                            onClick={() => {
-                                                setFilters(f => ({ ...f, category: hoveredCat, subcategory: "" }));
-                                                setCatPage(1);
-                                                setHoveredCat(null);
-                                            }}
+                                            onClick={() => selectCategoryPath(hoveredNode.path)}
                                             className={`flex items-center w-full px-4 py-2 text-sm font-semibold transition-colors ${
-                                                filters.category === hoveredCat && !filters.subcategory
-                                                    ? "bg-violet-50 text-violet-700"
-                                                    : "text-slate-700 hover:bg-slate-50 hover:text-slate-900"
+                                                filters.category === hoveredNode.path && !filters.subcategory
+                                                    ? "text-violet-700 bg-violet-50"
+                                                    : "text-slate-700 hover:bg-slate-50"
                                             }`}>
-                                            All {hoveredCat}
+                                            All {hoveredNode.name}
                                         </button>
-                                        {catMeta.subcategories
-                                            .filter(s => s.category === hoveredCat)
-                                            .map(s => (
-                                                <button key={s.subcategory} type="button"
-                                                    onClick={() => {
-                                                        setFilters(f => ({ ...f, category: hoveredCat, subcategory: s.subcategory }));
-                                                        setCatPage(1);
-                                                        setHoveredCat(null);
-                                                    }}
-                                                    className={`flex items-center w-full px-4 py-2 text-sm transition-colors ${
-                                                        filters.category === hoveredCat && filters.subcategory === s.subcategory
-                                                            ? "bg-violet-50 text-violet-700 font-semibold"
-                                                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-                                                    }`}>
-                                                    {s.subcategory}
-                                                </button>
-                                            ))
-                                        }
+                                        {hoveredNode.children.map(child => (
+                                            <button key={child.path} type="button"
+                                                onClick={() => selectCategoryPath(child.path)}
+                                                className={`flex items-center justify-between w-full px-4 py-2 text-sm transition-colors ${
+                                                    filters.category === child.path
+                                                        ? "text-violet-700 bg-violet-50 font-semibold"
+                                                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                                                }`}>
+                                                <span>{child.name}</span>
+                                                {child.children.length > 0 && (
+                                                    <svg className="w-3.5 h-3.5 text-slate-300 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                                        <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                        ))}
                                     </div>
                                 </motion.div>
                             )}
                         </AnimatePresence>
                     </div>
 
-                    {/* ── Filter facets (when a category is selected) ── */}
+                    {/* ── Filter facets (shown when a category is selected) ── */}
                     {filters.category && (
-                        <div className="bg-white rounded-2xl ring-1 ring-black/5 px-4 overflow-hidden">
-                            {/* Category / Subcategory */}
-                            <FacetSection title="Category" expanded={expandedFacets.category} onToggle={() => toggleFacet("category")}>
-                                <button type="button"
-                                    onClick={() => setFilter("subcategory", "")}
-                                    className={`flex items-center justify-between w-full py-1.5 text-sm transition-colors rounded-lg px-2 ${
-                                        !filters.subcategory ? "text-violet-700 font-bold" : "text-slate-600 hover:text-slate-900"
-                                    }`}>
-                                    <span>All {filters.category}</span>
-                                    {!filters.subcategory && (
-                                        <svg className="w-3.5 h-3.5 text-violet-500" fill="currentColor" viewBox="0 0 20 20">
-                                            <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                        </svg>
-                                    )}
-                                </button>
-                                {currentSubcats.map(sub => (
-                                    <button key={sub} type="button"
-                                        onClick={() => setFilter("subcategory", filters.subcategory === sub ? "" : sub)}
-                                        className={`flex items-center justify-between w-full py-1.5 text-sm transition-colors rounded-lg px-2 ${
-                                            filters.subcategory === sub
-                                                ? "text-violet-700 font-semibold"
-                                                : "text-slate-600 hover:text-slate-900"
-                                        }`}>
-                                        <span>{sub}</span>
-                                        {filters.subcategory === sub && (
-                                            <svg className="w-3.5 h-3.5 text-violet-500" fill="currentColor" viewBox="0 0 20 20">
-                                                <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                                            </svg>
-                                        )}
-                                    </button>
-                                ))}
-                            </FacetSection>
+                        <div className="bg-white rounded-2xl ring-1 ring-black/5 px-4">
 
-                            {/* Brand */}
+                            {/* ── Deeper category navigation ── */}
+                            {selectedNode && selectedNode.children.length > 0 && (
+                                <FacetSection title="Subcategory" expanded={expandedFacets.category} onToggle={() => toggleFacet("category")}>
+                                    <div className="space-y-0.5">
+                                        {/* "All [parent]" resets to the parent path */}
+                                        <button type="button"
+                                            onClick={() => {
+                                                /* If we're already at a child, go back to parent */
+                                                const parts = filters.category.split(";");
+                                                selectCategoryPath(parts.slice(0, -1).join(";") || parts[0]);
+                                            }}
+                                            className="flex items-center justify-between w-full py-1.5 px-2 text-sm rounded-lg text-slate-500 hover:text-slate-700 transition-colors">
+                                            <span className="flex items-center gap-1.5">
+                                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                                </svg>
+                                                All {selectedNode.name}
+                                            </span>
+                                        </button>
+                                        {selectedNode.children.map(child => (
+                                            <button key={child.path} type="button"
+                                                onClick={() => selectCategoryPath(child.path)}
+                                                className={`flex items-center justify-between w-full py-1.5 px-2 text-sm rounded-lg transition-colors ${
+                                                    filters.category === child.path
+                                                        ? "text-violet-700 font-semibold bg-violet-50"
+                                                        : "text-slate-600 hover:text-slate-900 hover:bg-slate-50"
+                                                }`}>
+                                                <span>{child.name}</span>
+                                                {filters.category === child.path && (
+                                                    <svg className="w-3.5 h-3.5 text-violet-500 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                                                        <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                                    </svg>
+                                                )}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </FacetSection>
+                            )}
+
+                            {/* ── For leaf nodes or no children: show breadcrumb nav ── */}
+                            {selectedNode && selectedNode.children.length === 0 && (
+                                <div className="py-3 border-b border-slate-100">
+                                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-2">Category</p>
+                                    <div className="flex flex-wrap gap-1 items-center text-xs text-slate-500">
+                                        {filters.category.split(";").map((seg, idx, arr) => {
+                                            const path = arr.slice(0, idx + 1).join(";");
+                                            const isLast = idx === arr.length - 1;
+                                            return (
+                                                <span key={path} className="flex items-center gap-1">
+                                                    {idx > 0 && <span className="text-slate-300">›</span>}
+                                                    {isLast
+                                                        ? <span className="font-bold text-violet-600">{seg}</span>
+                                                        : <button type="button" onClick={() => selectCategoryPath(path)}
+                                                            className="hover:text-violet-600 transition-colors">{seg}</button>
+                                                    }
+                                                </span>
+                                            );
+                                        })}
+                                    </div>
+                                    <button type="button"
+                                        onClick={() => {
+                                            const parts = filters.category.split(";");
+                                            if (parts.length > 1) selectCategoryPath(parts.slice(0, -1).join(";"));
+                                            else clearAll();
+                                        }}
+                                        className="mt-2 flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition-colors">
+                                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                                            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                                        </svg>
+                                        Back
+                                    </button>
+                                </div>
+                            )}
+
+                            {/* ── Subcategory field filter (separate SUBCATEGORY_NAME DB field) ── */}
+                            {relevantSubcats.length > 0 && (
+                                <FacetSection title="Type" expanded={expandedFacets.subcategory} onToggle={() => toggleFacet("subcategory")}>
+                                    {relevantSubcats.map(sub => (
+                                        <label key={sub}
+                                            className="flex items-center gap-2.5 py-1 cursor-pointer text-sm text-slate-600 hover:text-slate-900 transition-colors">
+                                            <input type="checkbox"
+                                                checked={filters.subcategory === sub}
+                                                onChange={() => setFilter("subcategory", filters.subcategory === sub ? "" : sub)}
+                                                className="w-4 h-4 rounded border-slate-300 text-violet-600 focus:ring-violet-500 focus:ring-offset-0 cursor-pointer" />
+                                            {sub}
+                                        </label>
+                                    ))}
+                                </FacetSection>
+                            )}
+
+                            {/* ── Brand ── */}
                             {catMeta.brands.length > 0 && (
                                 <FacetSection title="Brand" expanded={expandedFacets.brand} onToggle={() => toggleFacet("brand")}>
                                     {catMeta.brands.map(brand => (
@@ -835,7 +991,7 @@ export default function SanMarPage() {
                                 </FacetSection>
                             )}
 
-                            {/* Color */}
+                            {/* ── Color ── */}
                             <FacetSection title="Color" expanded={expandedFacets.color} onToggle={() => toggleFacet("color")}>
                                 {COLOR_FAMILIES.map(fam => {
                                     const isLight = fam.hex === "#f3f4f6" || fam.hex === "#f9fafb";
@@ -854,7 +1010,7 @@ export default function SanMarPage() {
                                 })}
                             </FacetSection>
 
-                            {/* Size */}
+                            {/* ── Size ── */}
                             {availableSizes.length > 0 && (
                                 <FacetSection title="Size" expanded={expandedFacets.size} onToggle={() => toggleFacet("size")}>
                                     <div className="flex flex-wrap gap-1.5 pt-0.5">
@@ -864,7 +1020,7 @@ export default function SanMarPage() {
                                                 className={`px-2.5 py-1 text-xs font-semibold rounded-lg border-2 transition-all ${
                                                     filters.size === size
                                                         ? "border-violet-600 bg-violet-50 text-violet-700"
-                                                        : "border-slate-200 text-slate-600 hover:border-slate-300 hover:text-slate-900"
+                                                        : "border-slate-200 text-slate-600 hover:border-slate-300"
                                                 }`}>
                                                 {size}
                                             </button>
@@ -873,7 +1029,7 @@ export default function SanMarPage() {
                                 </FacetSection>
                             )}
 
-                            {/* Price */}
+                            {/* ── Price ── */}
                             <FacetSection title="Price" expanded={expandedFacets.price} onToggle={() => toggleFacet("price")}>
                                 {PRICE_RANGES.map(range => (
                                     <label key={range.key}
@@ -887,7 +1043,7 @@ export default function SanMarPage() {
                                 ))}
                             </FacetSection>
 
-                            {/* In Stock */}
+                            {/* ── In Stock ── */}
                             <div className="py-3.5 border-t border-slate-100">
                                 <button type="button"
                                     onClick={() => setFilter("inStock", !filters.inStock)}
@@ -901,7 +1057,7 @@ export default function SanMarPage() {
                                 </button>
                             </div>
 
-                            {/* Clear filters */}
+                            {/* ── Clear filters ── */}
                             {activeFilterCount > 0 && (
                                 <div className="pb-3.5">
                                     <button type="button" onClick={clearAll}
@@ -914,17 +1070,17 @@ export default function SanMarPage() {
                     )}
                 </div>
 
-                {/* ── RIGHT CONTENT ── */}
+                {/* ══ RIGHT CONTENT ══ */}
                 <div className="flex-1 min-w-0 space-y-4">
 
                     {/* Active filter chips */}
                     {activeFilterCount > 0 && (
                         <div className="flex items-center gap-2 flex-wrap">
                             {filters.category && (
-                                <FilterChip label={filters.category} onRemove={() => {
-                                    setFilters(f => ({ ...f, category: "", subcategory: "" }));
-                                    setCatPage(1);
-                                }} />
+                                <FilterChip
+                                    label={formatCatPath(filters.category)}
+                                    onRemove={() => setFilters(f => ({ ...f, category: "", subcategory: "" })) || setCatPage(1)}
+                                />
                             )}
                             {filters.subcategory && (
                                 <FilterChip label={filters.subcategory} onRemove={() => setFilter("subcategory", "")} />
@@ -948,8 +1104,8 @@ export default function SanMarPage() {
                             {filters.inStock && (
                                 <span className="flex items-center gap-1.5 bg-emerald-100 text-emerald-700 text-xs font-semibold px-3 py-1.5 rounded-full">
                                     In Stock Only
-                                    <button type="button" aria-label="Remove in-stock filter"
-                                        onClick={() => setFilter("inStock", false)}
+                                    <button type="button" onClick={() => setFilter("inStock", false)}
+                                        aria-label="Remove in-stock filter"
                                         className="hover:text-emerald-900 ml-0.5">
                                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                                             <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -966,7 +1122,9 @@ export default function SanMarPage() {
 
                     {/* Result count */}
                     <p className="text-sm text-slate-500 tabular-nums">
-                        {catLoading ? "Loading…" : `${catTotal.toLocaleString()} variants · ${styleCards.length} styles shown`}
+                        {catLoading
+                            ? "Loading…"
+                            : `${catTotal.toLocaleString()} variants · ${styleCards.length} styles shown`}
                     </p>
 
                     {/* Product grid / list */}
@@ -988,7 +1146,9 @@ export default function SanMarPage() {
                                     {catTotal === 0 ? "Catalog is empty" : "No results"}
                                 </p>
                                 <p className="text-sm text-slate-400 mt-1">
-                                    {catTotal === 0 ? "Use Catalog Health below to load products" : "Try a different filter or search term"}
+                                    {catTotal === 0
+                                        ? "Use Catalog Health below to load products"
+                                        : "Try a different filter or search term"}
                                 </p>
                             </div>
                             {activeFilterCount > 0 && (
@@ -1093,7 +1253,6 @@ export default function SanMarPage() {
                                 </div>
                             ) : detail ? (
                                 <div>
-                                    {/* Hero image */}
                                     <div className="relative bg-gradient-to-br from-slate-50 to-slate-100 h-72 overflow-hidden">
                                         {(() => {
                                             const v = detail.variants.find(v => v.colorName === selectedColor);
@@ -1132,7 +1291,9 @@ export default function SanMarPage() {
                                             {detail.brand && <p className="text-xs font-bold text-violet-500 uppercase tracking-widest mb-1">{detail.brand}</p>}
                                             <h2 className="text-xl font-black text-slate-900 leading-tight">{detail.title ?? panelStyle}</h2>
                                             {detail.category && (
-                                                <p className="text-xs text-slate-400 mt-1">{detail.category}{detail.subcategory ? ` · ${detail.subcategory}` : ""}</p>
+                                                <p className="text-xs text-slate-400 mt-1">
+                                                    {formatCatPath(detail.category)}{detail.subcategory ? ` · ${detail.subcategory}` : ""}
+                                                </p>
                                             )}
                                             <p className="text-2xl font-black text-slate-900 mt-3">
                                                 {detail.priceCents > 0 ? `From ${fmt(detail.priceCents)}` : "Price on request"}
@@ -1156,7 +1317,7 @@ export default function SanMarPage() {
                                                 {detail.colors.map(color => {
                                                     const qty = detail.variants.filter(v => v.colorName === color).reduce((a, v) => a + v.inventoryQty, 0);
                                                     const hex = colorHex(color);
-                                                    const isLight = ["#f9fafb", "#e5e7eb", "#bfdbfe", "#d1d5db", "#c4b5fd", "#f3f4f6"].includes(hex);
+                                                    const isLight = ["#f9fafb","#e5e7eb","#bfdbfe","#d1d5db","#c4b5fd","#f3f4f6"].includes(hex);
                                                     return (
                                                         <button key={color} type="button" title={color} aria-label={color}
                                                             onClick={() => setColor(color)}

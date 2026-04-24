@@ -138,28 +138,51 @@ router.get('/catalog', async (req, res) => {
     const subcategory = req.query.subcategory as string | undefined;
     const brand       = req.query.brand       as string | undefined;
     const colorName   = req.query.colorName   as string | undefined;
+    const size        = req.query.size        as string | undefined;
     const style       = req.query.style       as string | undefined;
     const inStock     = req.query.inStock === 'true';
+    const priceMin    = req.query.priceMin ? parseInt(req.query.priceMin as string, 10) : undefined;
+    const priceMax    = req.query.priceMax ? parseInt(req.query.priceMax as string, 10) : undefined;
     const limit       = Math.min(parseInt(req.query.limit as string ?? '50', 10), 200);
     const page        = Math.max(1, parseInt(req.query.page as string ?? '1', 10));
     const skip        = (page - 1) * limit;
 
     const where: any = {};
+    const andClauses: any[] = [];
+
     if (style) {
         where.style = { equals: style, mode: 'insensitive' };
-    } else if (q) {
-        where.OR = [
-            { style:       { contains: q, mode: 'insensitive' } },
-            { title:       { contains: q, mode: 'insensitive' } },
-            { brand:       { contains: q, mode: 'insensitive' } },
-            { description: { contains: q, mode: 'insensitive' } },
-        ];
+    } else {
+        if (q) {
+            andClauses.push({ OR: [
+                { style:       { contains: q, mode: 'insensitive' } },
+                { title:       { contains: q, mode: 'insensitive' } },
+                { brand:       { contains: q, mode: 'insensitive' } },
+                { description: { contains: q, mode: 'insensitive' } },
+            ]});
+        }
+        if (category) {
+            // Match the exact path (e.g. "Activewear") OR any deeper path ("Activewear;Bottoms")
+            andClauses.push({ OR: [
+                { category: { equals: category,          mode: 'insensitive' } },
+                { category: { startsWith: category + ';', mode: 'insensitive' } },
+            ]});
+        }
     }
-    if (category)    where.category    = { contains: category,    mode: 'insensitive' };
-    if (subcategory) where.subcategory = { contains: subcategory, mode: 'insensitive' };
-    if (brand)       where.brand       = { contains: brand,       mode: 'insensitive' };
-    if (colorName)   where.colorName   = { contains: colorName,   mode: 'insensitive' };
-    if (inStock)     where.inventoryQty = { gt: 0 };
+
+    if (andClauses.length > 0) where.AND = andClauses;
+    if (subcategory) where.subcategory   = { contains: subcategory, mode: 'insensitive' };
+    if (brand)       where.brand         = { contains: brand,       mode: 'insensitive' };
+    if (colorName)   where.colorName     = { contains: colorName,   mode: 'insensitive' };
+    if (size)        where.sizeName      = { equals: size,          mode: 'insensitive' };
+    if (inStock)     where.inventoryQty  = { gt: 0 };
+    if (priceMin !== undefined || priceMax !== undefined) {
+        where.priceCents = {
+            gt: 0,
+            ...(priceMin !== undefined ? { gte: priceMin } : {}),
+            ...(priceMax !== undefined ? { lte: priceMax } : {}),
+        };
+    }
 
     const [data, total] = await Promise.all([
         prisma.sanmarCatalogProduct.findMany({ where, take: limit, skip, orderBy: [{ style: 'asc' }, { colorName: 'asc' }, { sizeName: 'asc' }] }),

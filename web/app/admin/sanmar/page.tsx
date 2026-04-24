@@ -1079,7 +1079,7 @@ export default function SanMarPage() {
                             {filters.category && (
                                 <FilterChip
                                     label={formatCatPath(filters.category)}
-                                    onRemove={() => setFilters(f => ({ ...f, category: "", subcategory: "" })) || setCatPage(1)}
+                                    onRemove={() => { setFilters(f => ({ ...f, category: "", subcategory: "" })); setCatPage(1); }}
                                 />
                             )}
                             {filters.subcategory && (
